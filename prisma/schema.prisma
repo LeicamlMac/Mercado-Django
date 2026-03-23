@@ -1,0 +1,67 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Get a free hosted Postgres database in seconds: `npx create-db`
+
+generator client {
+  provider = "prisma-client.ts"
+}
+
+datasource db {
+  provider = "postgresql"
+  }
+enum TipoDespesa{
+  FIXA
+  VARIAVEL
+}
+
+enum StatusDespesa{
+  PAGA
+  PENDENTE
+}
+
+model Categoria{
+  id  Int @id @default(autoincrement())
+  nome  String
+
+  produtos Produto[]
+}
+
+model Produto{
+  id  Int @id @default(autoincrement())
+  nome  String
+  precoVenda  Decimal
+  quantidadeEstoque Int
+  categoriaId Int
+  categoria  Categoria   @relation(fields: [categoriaId], references: [id])
+
+  itensVenda  ItemVenda[]
+}
+
+model Venda{
+  id  Int @id @default(autoincrement())
+  dataVenda   DateTime  @default(now())
+  valorTotal  Decimal @db.Decimal(10, 2)
+
+  itens ItemVenda[]
+}
+
+model ItemVenda{
+  id  Int @id @default(autoincrement())
+  vendaId Int
+  produtoId Int
+  quantidade  Int
+  precoUnitario Decimal @db.Decimal(10, 2)
+
+  venda Venda @relation(fields: [vendaId], references: [id])
+  produto Produto @relation(fields: [produtoId], references: [id])
+}
+
+model Despesa {
+  id             Int           @id @default(autoincrement())
+  descricao      String        
+  valor          Decimal       @db.Decimal(10, 2)
+  tipo           TipoDespesa   // Diferencia custos fixos e variáveis 
+  status         StatusDespesa // Diferencia despesas pagas de pendentes
+  dataLancamento DateTime      @default(now())
+}
