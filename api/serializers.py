@@ -125,7 +125,7 @@ class ProductVariantSerializer(serializers.ModelSerializer):
 
     def validate_price(self, value):
         if value <= 0:
-            raise serializers.ValidationError("O preco deve ser maior que zero.")
+            raise serializers.ValidationError("O preço deve ser maior que zero.")
         return value
 
 
@@ -154,7 +154,7 @@ class StockMovementSerializer(serializers.ModelSerializer):
 
 
 class QuickEntrySerializer(serializers.Serializer):
-    category_name = serializers.CharField(max_length=80)
+    category_name = serializers.CharField(max_length=80, allow_blank=True, required=False)
     product_name = serializers.CharField(max_length=120)
     brand = serializers.CharField(max_length=120)
     variant_label = serializers.CharField(max_length=80, allow_blank=True, required=False)
@@ -171,7 +171,7 @@ class QuickEntrySerializer(serializers.Serializer):
 
     def validate_price(self, value):
         if value <= 0:
-            raise serializers.ValidationError("O preco deve ser maior que zero.")
+            raise serializers.ValidationError("O preço deve ser maior que zero.")
         return value
 
     def validate_department_names(self, values):

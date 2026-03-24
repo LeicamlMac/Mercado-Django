@@ -117,3 +117,86 @@ class CatalogApiTests(APITestCase):
         response = self.client.get(reverse("items-list"), {"department_id": self.department.id})
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.data["count"], 1)
+
+    def test_quick_entry_reuses_existing_variant_without_category(self):
+        self.authenticate(self.manager)
+        response = self.client.post(
+            reverse("quick-entry"),
+            {
+                "product_name": "arroz",
+                "brand": "camil",
+                "variant_label": "branco",
+                "package_size": "1kg",
+                "package_name": "UNIDADE",
+                "package_units": 1,
+                "department_names": ["Mercearia"],
+                "price": "9.99",
+                "quantity": 2,
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.variant.refresh_from_db()
+        self.assertEqual(self.variant.stock, 2)
+        self.assertEqual(ProductVariant.objects.count(), 1)
+
+    def test_quick_entry_keeps_existing_package_units(self):
+        self.authenticate(self.manager)
+        response = self.client.post(
+            reverse("quick-entry"),
+            {
+                "category_name": "Mercearia",
+                "product_name": "Arroz",
+                "brand": "Camil",
+                "variant_label": "Branco",
+                "package_size": "1KG",
+                "package_name": "FARDO",
+                "package_units": 1,
+                "department_names": ["Mercearia"],
+                "price": "9.99",
+                "quantity": 1,
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.variant.refresh_from_db()
+        self.bundle_package.refresh_from_db()
+        self.assertEqual(self.bundle_package.units_per_package, 30)
+        self.assertEqual(self.variant.stock, 30)
+
+    def test_catalog_lookup_filters_invalid_refrigerante_brand_variant(self):
+        bebidas, _ = Category.objects.get_or_create(name="Bebidas")
+        bebidas_dep, _ = Department.objects.get_or_create(name="Bebidas")
+
+        base = ProductBase.objects.create(
+            category=bebidas,
+            name="Refrigerante",
+            brand="Coca-Cola",
+        )
+        base.departments.add(bebidas_dep)
+
+        ProductVariant.objects.create(
+            product=base,
+            variant_label="Guarana",
+            package_size="2L",
+            price="9.90",
+            stock=10,
+        )
+        ProductVariant.objects.create(
+            product=base,
+            variant_label="Cola",
+            package_size="2L",
+            price="9.90",
+            stock=10,
+        )
+
+        self.authenticate(self.manager)
+        response = self.client.get(reverse("catalog-lookup"), {"q": "refrigerante coca cola"})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        labels = {
+            (item["brand"], item["variant_label"])
+            for item in response.data.get("items", [])
+            if item.get("product_name") == "Refrigerante" and item.get("brand") == "Coca-Cola"
+        }
+        self.assertIn(("Coca-Cola", "Cola"), labels)
+        self.assertNotIn(("Coca-Cola", "Guarana"), labels)

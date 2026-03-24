@@ -1,6 +1,8 @@
 ﻿from django.contrib.auth.models import Group
+import re
+
 from django.db import transaction
-from django.db.models import F, Sum
+from django.db.models import F, Q, Sum
 from django.db.models.functions import Lower
 from rest_framework import filters, status, viewsets
 from rest_framework.permissions import AllowAny, IsAuthenticated
@@ -54,6 +56,55 @@ DEPARTMENT_ORDER = [
     "Congelados",
 ]
 
+REFRIGERANTE_BRANDS = {
+    "coca-cola",
+    "coca cola",
+    "guarana antarctica",
+    "fanta",
+    "pepsi",
+    "sprite",
+    "kuat",
+    "dolly",
+}
+SUCO_BRANDS = {
+    "del valle",
+    "maguary",
+    "tial",
+    "natural one",
+    "do bem",
+    "sufresh",
+    "dafruta",
+}
+AGUA_BRANDS = {
+    "crystal",
+    "minalba",
+    "bonafont",
+    "indaia",
+    "lindoya",
+    "acquissima",
+}
+REFRI_BRAND_VARIANT_HINTS = {
+    "coca-cola": {"cola", "zero"},
+    "coca cola": {"cola", "zero"},
+    "pepsi": {"cola", "zero"},
+    "sprite": {"limao", "zero"},
+    "fanta": {"laranja", "uva", "limao", "zero"},
+    "guarana antarctica": {"guarana", "zero"},
+    "kuat": {"guarana", "zero"},
+    "dolly": {"guarana", "cola", "uva", "laranja", "zero"},
+}
+BEER_BRANDS = {
+    "skol",
+    "brahma",
+    "antarctica",
+    "heineken",
+    "amstel",
+    "itaipava",
+    "petra",
+    "budweiser",
+    "stella artois",
+}
+
 
 def _signed_units(movement_type, units):
     if movement_type in {StockMovement.MOVEMENT_RECEIVE, StockMovement.MOVEMENT_RETURN}:
@@ -87,13 +138,222 @@ def _resolve_units(payload, variant):
     return None, 0, 1
 
 
+def _normalize_for_search(value: str) -> str:
+    normalized = normalize_catalog_text(value or "")
+    normalized = re.sub(r"[^a-z0-9]+", " ", normalized)
+    return re.sub(r"\s+", " ", normalized).strip()
+
+
+def _query_tokens(value: str) -> list[str]:
+    text = _normalize_for_search(value)
+    return [token for token in text.split(" ") if token]
+
+
+def _size_sort_tuple(value: str):
+    text = _normalize_for_search(value)
+    match = re.search(r"(\d+(?:\.\d+)?)\s*(kg|g|l|ml|un)$", text)
+    if not match:
+        return (9, text)
+    number = float(match.group(1))
+    unit = match.group(2)
+    if unit == "kg":
+        return (0, number * 1000.0)
+    if unit == "g":
+        return (0, number)
+    if unit == "l":
+        return (1, number * 1000.0)
+    if unit == "ml":
+        return (1, number)
+    if unit == "un":
+        return (2, number)
+    return (9, text)
+
+
+def _search_stock_catalog(query: str, department: str = "", limit: int = 400):
+    term = (query or "").strip()
+    if len(term) < 2:
+        return []
+    normalized_term = _normalize_for_search(term)
+    tokens = _query_tokens(term)
+
+    queryset = (
+        ProductVariant.objects.select_related("product", "product__category")
+        .prefetch_related("product__departments", "packages")
+        .filter(is_active=True)
+    )
+    if department:
+        queryset = queryset.filter(product__departments__name__iexact=department.strip())
+
+    queryset = queryset.distinct()
+
+    items = []
+
+    def _brand_matches(brand_value: str, allowed_terms: set[str]) -> bool:
+        return any(term in brand_value for term in allowed_terms)
+
+    for variant in queryset.order_by("-updated_at")[: max(limit * 8, 500)]:
+        normalized_product = _normalize_for_search(variant.product.name)
+        normalized_brand = _normalize_for_search(variant.product.brand)
+        normalized_category = _normalize_for_search(variant.product.category.name)
+        normalized_variant = _normalize_for_search(variant.variant_label)
+        normalized_size = _normalize_for_search(variant.package_size)
+
+        haystack = " ".join(
+            [
+                normalized_product,
+                normalized_brand,
+                normalized_category,
+                normalized_variant,
+                normalized_size,
+            ]
+        ).strip()
+        if tokens and not all(token in haystack for token in tokens):
+            continue
+
+        # For high-intent beverage queries, prioritize exact product families.
+        if normalized_term in {"refri", "refrigerante"} and "refrigerante" not in normalized_product:
+            continue
+        if normalized_term == "suco" and "suco" not in normalized_product:
+            continue
+        if normalized_term == "agua" and "agua" not in normalized_product:
+            continue
+
+        # Avoid implausible product-brand combinations in assistant search.
+        if ("refri" in normalized_product or "refrigerante" in normalized_product) and not _brand_matches(normalized_brand, REFRIGERANTE_BRANDS):
+            continue
+        if "suco" in normalized_product and not _brand_matches(normalized_brand, SUCO_BRANDS):
+            continue
+        if ("agua" in normalized_product or "água" in normalized_product) and not _brand_matches(normalized_brand, AGUA_BRANDS):
+            continue
+        if normalized_product == "refri":
+            continue
+        if "cerveja" in normalized_product and not _brand_matches(normalized_brand, BEER_BRANDS):
+            continue
+        if "refri" in normalized_product or "refrigerante" in normalized_product:
+            variant_ok = True
+            for brand_hint, allowed_variants in REFRI_BRAND_VARIANT_HINTS.items():
+                if brand_hint in normalized_brand and normalized_variant:
+                    if not any(hint in normalized_variant for hint in allowed_variants):
+                        variant_ok = False
+                    break
+            if not variant_ok:
+                continue
+
+        default_package = None
+        for package in variant.packages.all():
+            if package.is_default:
+                default_package = package
+                break
+        if default_package is None:
+            default_package = next(iter(variant.packages.all()), None)
+
+        items.append(
+            {
+                "barcode": "",
+                "product_name": variant.product.name,
+                "brand": variant.product.brand,
+                "category": variant.product.category.name,
+                "variant_label": variant.variant_label,
+                "package_size": variant.package_size,
+                "department_names": [dep.name for dep in variant.product.departments.all()],
+                "package_name": default_package.name if default_package else "UNIDADE",
+                "package_units": default_package.units_per_package if default_package else 1,
+                "source": "estoque_local",
+            }
+        )
+        if len(items) >= limit:
+            break
+    return items
+
+
+def _resolve_product_base(category, product_name, brand):
+    normalized_name = product_name.strip().title()
+    normalized_brand = brand.strip().title()
+
+    exact = ProductBase.objects.filter(
+        category=category,
+        name__iexact=normalized_name,
+        brand__iexact=normalized_brand,
+    ).first()
+    if exact:
+        return exact, False
+
+    legacy = (
+        ProductBase.objects.filter(name__iexact=normalized_name, brand__iexact=normalized_brand)
+        .order_by("-updated_at", "-id")
+        .first()
+    )
+    if legacy:
+        if legacy.category_id != category.id:
+            legacy.category = category
+            legacy.save(update_fields=["category", "updated_at"])
+        return legacy, False
+
+    created = ProductBase.objects.create(
+        category=category,
+        name=normalized_name,
+        brand=normalized_brand,
+        is_active=True,
+    )
+    return created, True
+
+
+def _resolve_variant(product, variant_label, package_size, price):
+    normalized_variant = variant_label.strip().title()
+    normalized_size = package_size.strip().upper()
+
+    variant = ProductVariant.objects.filter(
+        product=product,
+        variant_label__iexact=normalized_variant,
+        package_size__iexact=normalized_size,
+    ).first()
+    if variant:
+        variant.price = price
+        variant.is_active = True
+        variant.save(update_fields=["price", "is_active", "updated_at"])
+        return variant, False
+
+    created = ProductVariant.objects.create(
+        product=product,
+        variant_label=normalized_variant,
+        package_size=normalized_size,
+        price=price,
+        stock=0,
+        is_active=True,
+    )
+    return created, True
+
+
+def _resolve_or_create_package(variant, package_name, package_units, *, allow_update_units=False):
+    normalized_name = package_name.strip().upper()
+    units = int(package_units or 1)
+
+    package = ProductPackage.objects.filter(
+        variant=variant,
+        name__iexact=normalized_name,
+    ).first()
+    if package:
+        if allow_update_units and units != package.units_per_package:
+            package.units_per_package = units
+            package.save(update_fields=["units_per_package", "updated_at"])
+        return package, False
+
+    created = ProductPackage.objects.create(
+        variant=variant,
+        name=normalized_name,
+        units_per_package=units,
+        is_default=normalized_name == "UNIDADE",
+    )
+    return created, True
+
+
 @transaction.atomic
 def _apply_movement(variant, movement_type, units, user, notes="", package=None, package_quantity=1):
     signed = _signed_units(movement_type, units)
 
     variant.refresh_from_db(fields=["stock"])
     if variant.stock + signed < 0:
-        raise ValueError("O estoque nao pode ficar negativo.")
+        raise ValueError("O estoque não pode ficar negativo.")
 
     ProductVariant.objects.filter(id=variant.id).update(stock=F("stock") + signed)
     variant.refresh_from_db()
@@ -263,6 +523,7 @@ class ProductMetricsView(APIView):
 class QuickEntryView(APIView):
     permission_classes = [IsAuthenticated, CatalogWritePermission]
 
+    @transaction.atomic
     def post(self, request):
         serializer = QuickEntrySerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -278,31 +539,24 @@ class QuickEntryView(APIView):
             requested_category=data.get("category_name", ""),
         )
         category, _ = Category.objects.get_or_create(name=normalized_category)
-        product, _ = ProductBase.objects.get_or_create(
+        product, _ = _resolve_product_base(
             category=category,
-            name=data["product_name"].strip().title(),
-            brand=data["brand"].strip().title(),
-            defaults={"is_active": True},
+            product_name=data["product_name"],
+            brand=data["brand"],
         )
         department_ids = []
         for dep_name in department_names:
             dep, _ = Department.objects.get_or_create(name=dep_name)
             department_ids.append(dep.id)
-        product.departments.set(department_ids)
+        if department_ids:
+            product.departments.add(*department_ids)
 
-        variant_label = data.get("variant_label", "").strip().title()
-        package_size = data["package_size"].strip().upper()
-        variant, created = ProductVariant.objects.get_or_create(
+        variant, created = _resolve_variant(
             product=product,
-            variant_label=variant_label,
-            package_size=package_size,
-            defaults={"price": data["price"], "stock": 0, "is_active": True},
+            variant_label=data.get("variant_label", ""),
+            package_size=data["package_size"],
+            price=data["price"],
         )
-
-        if not created:
-            variant.price = data["price"]
-            variant.is_active = True
-            variant.save(update_fields=["price", "is_active", "updated_at"])
 
         unit_package, _ = ProductPackage.objects.get_or_create(
             variant=variant, name="UNIDADE", defaults={"units_per_package": 1, "is_default": True}
@@ -318,17 +572,12 @@ class QuickEntryView(APIView):
         if not package_units:
             package_units = 1
 
-        movement_package, package_created = ProductPackage.objects.get_or_create(
+        movement_package, _ = _resolve_or_create_package(
             variant=variant,
-            name=package_name,
-            defaults={
-                "units_per_package": package_units,
-                "is_default": package_name == "UNIDADE",
-            },
+            package_name=package_name,
+            package_units=package_units,
+            allow_update_units=False,
         )
-        if not package_created and package_units != movement_package.units_per_package:
-            movement_package.units_per_package = package_units
-            movement_package.save(update_fields=["units_per_package", "updated_at"])
 
         movement, variant = _apply_movement(
             variant=variant,
@@ -361,12 +610,12 @@ class ReceiveStockView(APIView):
 
         variant = ProductVariant.objects.filter(id=data["variant_id"]).first()
         if not variant:
-            return Response({"detail": "Item nao encontrado."}, status=status.HTTP_404_NOT_FOUND)
+            return Response({"detail": "Item não encontrado."}, status=status.HTTP_404_NOT_FOUND)
 
         package, units, package_quantity = _resolve_units(data, variant)
         if units < 1:
             return Response(
-                {"detail": "Nao foi possivel calcular unidades para este recebimento."},
+                {"detail": "Não foi possível calcular unidades para este recebimento."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
@@ -397,12 +646,12 @@ class SellStockView(APIView):
 
         variant = ProductVariant.objects.filter(id=data["variant_id"]).first()
         if not variant:
-            return Response({"detail": "Item nao encontrado."}, status=status.HTTP_404_NOT_FOUND)
+            return Response({"detail": "Item não encontrado."}, status=status.HTTP_404_NOT_FOUND)
 
         package, units, package_quantity = _resolve_units(data, variant)
         if units < 1:
             return Response(
-                {"detail": "Nao foi possivel calcular unidades para esta venda."},
+                {"detail": "Não foi possível calcular unidades para esta venda."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
@@ -437,7 +686,7 @@ class AdjustStockView(APIView):
 
         variant = ProductVariant.objects.filter(id=data["variant_id"]).first()
         if not variant:
-            return Response({"detail": "Item nao encontrado."}, status=status.HTTP_404_NOT_FOUND)
+            return Response({"detail": "Item não encontrado."}, status=status.HTTP_404_NOT_FOUND)
 
         units = data["quantity_units"]
         try:
@@ -465,7 +714,7 @@ class RestockVariantView(APIView):
     def post(self, request, pk):
         variant = ProductVariant.objects.filter(pk=pk).first()
         if not variant:
-            return Response({"detail": "Item nao encontrado."}, status=status.HTTP_404_NOT_FOUND)
+            return Response({"detail": "Item não encontrado."}, status=status.HTTP_404_NOT_FOUND)
 
         payload = dict(request.data)
         payload["variant_id"] = pk
@@ -476,7 +725,7 @@ class RestockVariantView(APIView):
         package, units, package_quantity = _resolve_units(data, variant)
         if units < 1:
             return Response(
-                {"detail": "Nao foi possivel calcular unidades para esta reposicao."},
+                {"detail": "Não foi possível calcular unidades para esta reposição."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
@@ -619,6 +868,8 @@ class CatalogLookupView(APIView):
             )
 
         if len(query) >= 2:
+            stock_items = _search_stock_catalog(query, department=department)
+            stock_count = len(stock_items)
             local_items = search_local_catalog(query, department=department)
             local_count = len(local_items)
             try:
@@ -630,8 +881,13 @@ class CatalogLookupView(APIView):
             merged_items = []
             seen_keys = set()
             external_serialized = [entry.__dict__ for entry in external_items]
-            # When Bluesoft is configured, prefer external results first.
-            for item in (external_serialized + local_items) if bluesoft_ready else (local_items + external_serialized):
+            # Prefer stock items first so assistant reflects everything already registered.
+            ordered_sources = (
+                stock_items + external_serialized + local_items
+                if bluesoft_ready
+                else stock_items + local_items + external_serialized
+            )
+            for item in ordered_sources:
                 key = (
                     normalize_catalog_text(item.get("product_name") or ""),
                     normalize_catalog_text(item.get("brand") or ""),
@@ -642,12 +898,21 @@ class CatalogLookupView(APIView):
                     continue
                 seen_keys.add(key)
                 merged_items.append(item)
+            merged_items.sort(
+                key=lambda item: (
+                    normalize_catalog_text(item.get("product_name") or ""),
+                    normalize_catalog_text(item.get("variant_label") or ""),
+                    normalize_catalog_text(item.get("brand") or ""),
+                    _size_sort_tuple(item.get("package_size") or ""),
+                )
+            )
             return Response(
                 {
                     "item": None,
                     "items": merged_items[:60],
                     "meta": {
                         "bluesoft_configurada": bluesoft_ready,
+                        "resultados_estoque": stock_count,
                         "resultados_bluesoft": external_count,
                         "resultados_locais": local_count,
                     },

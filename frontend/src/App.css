@@ -434,6 +434,7 @@ tr:hover td {
   background: #ffffff;
   padding: 10px;
   display: flex;
+  flex-wrap: wrap;
   justify-content: space-between;
   align-items: center;
   gap: 10px;
@@ -443,6 +444,11 @@ tr:hover td {
   margin: 4px 0 0;
   color: #5f7397;
   font-size: 12px;
+}
+
+.catalog-item .form-grid {
+  width: 100%;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
 }
 
 .session-box {

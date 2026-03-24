@@ -30,7 +30,7 @@ const movimentoLabel = {
   SELL: "Venda",
   ADJUST: "Ajuste",
   LOSS: "Perda",
-  RETURN: "Devolucao",
+  RETURN: "Devolução",
 };
 
 const SETORES_PADRAO = [
@@ -59,6 +59,92 @@ function normalizarTexto(value) {
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "")
     .trim();
+}
+
+function corrigirOrtografiaUI(value) {
+  let text = String(value || "").trim();
+  if (!text) return "";
+
+  const substitutions = [
+    [/Laticinios/gi, "Laticínios"],
+    [/Higienico/gi, "Higiênico"],
+    [/Acucar/gi, "Açúcar"],
+    [/Cafe/gi, "Café"],
+    [/Limao/gi, "Limão"],
+    [/Maracuja/gi, "Maracujá"],
+    [/Pao/gi, "Pão"],
+    [/Sabao em Po/gi, "Sabão em Pó"],
+    [/Sabao/gi, "Sabão"],
+    [/Agua Sanitaria/gi, "Água Sanitária"],
+    [/Agua/gi, "Água"],
+    [/Linguica/gi, "Linguiça"],
+    [/Anticaries/gi, "Anticáries"],
+    [/Sem Acucar/gi, "Sem Açúcar"],
+    [/Liquido/gi, "Líquido"],
+    [/Hidratacao/gi, "Hidratação"],
+    [/Reconstrucao/gi, "Reconstrução"],
+    [/Maca\\b/gi, "Maçã"],
+    [/Elegê/gi, "Elegê"],
+    [/Feijao-de-corda/gi, "Feijão-de-corda"],
+    [/Feijao/gi, "Feijão"],
+    [/Parboilizado/gi, "Parboilizado"],
+  ];
+  for (const [pattern, replacement] of substitutions) {
+    text = text.replace(pattern, replacement);
+  }
+  return text;
+}
+
+function tamanhoOrdenacao(value) {
+  const text = normalizarTexto(value);
+  const match = text.match(/(\d+(?:\.\d+)?)\s*(kg|g|l|ml|un)$/i);
+  if (!match) return [9, text];
+  const number = Number(match[1]);
+  const unit = match[2];
+  if (unit === "kg") return [0, number * 1000];
+  if (unit === "g") return [0, number];
+  if (unit === "l") return [1, number * 1000];
+  if (unit === "ml") return [1, number];
+  if (unit === "un") return [2, number];
+  return [9, text];
+}
+
+function limparTipoArroz(productName, variantLabel) {
+  const produto = normalizarTexto(productName);
+  const rotulo = (variantLabel || "").trim();
+  if (!rotulo) return "";
+  if (!produto.includes("arroz")) return rotulo;
+  return rotulo.replace(/\btipo\s*\d+\b/gi, "").replace(/\s{2,}/g, " ").trim();
+}
+
+function tituloCatalogo(item) {
+  const produto = corrigirOrtografiaUI(item?.product_name);
+  const variante = corrigirOrtografiaUI(item?.variant_label || "Tradicional");
+  const marca = corrigirOrtografiaUI(item?.brand);
+  const tamanho = corrigirOrtografiaUI(item?.size_summary || item?.package_size);
+  return `${produto} ${variante} — ${marca} — ${tamanho}`.trim();
+}
+
+function extrairTamanhoBusca(query) {
+  const match = normalizarTexto(query).match(/(\d+(?:[.,]\d+)?)\s*(kg|g|l|ml|un)/i);
+  if (!match) return "";
+  return `${String(match[1]).replace(",", ".")}${match[2].toLowerCase()}`;
+}
+
+function escolherTamanhoRepresentativo(orderedSizes, tamanhoBusca) {
+  if (!orderedSizes.length) return "";
+  if (tamanhoBusca) {
+    const exact = orderedSizes.find((size) =>
+      normalizarTexto(size).includes(tamanhoBusca)
+    );
+    if (exact) return exact;
+  }
+  const preferidos = ["1kg", "1l", "500g", "350ml", "90g", "12un"];
+  for (const pref of preferidos) {
+    const hit = orderedSizes.find((size) => normalizarTexto(size).includes(pref));
+    if (hit) return hit;
+  }
+  return orderedSizes[0];
 }
 
 function regraPossuiProduto(regra) {
@@ -108,7 +194,7 @@ async function requestJson(path, options = {}) {
         throw new Error(firstError);
       }
     }
-    throw new Error("NÃ£o foi possÃ­vel concluir a requisiÃ§Ã£o.");
+    throw new Error("Não foi possível concluir a requisição.");
   }
 
   return body;
@@ -161,6 +247,10 @@ function App() {
   const [catalogItems, setCatalogItems] = useState([]);
   const [catalogLoading, setCatalogLoading] = useState(false);
   const [catalogMeta, setCatalogMeta] = useState(EMPTY_CATALOG_META);
+  const [catalogChoices, setCatalogChoices] = useState({});
+  const [expandedCatalogGroups, setExpandedCatalogGroups] = useState([]);
+  const [catalogBatchEntries, setCatalogBatchEntries] = useState([]);
+  const [catalogBatchSaving, setCatalogBatchSaving] = useState(false);
 
   const regraProdutoAtual = useMemo(() => {
     const nomeProduto = normalizarTexto(quickForm.product_name);
@@ -211,20 +301,136 @@ function App() {
   ]);
 
   const catalogItemsDedup = useMemo(() => {
-    const seen = new Set();
-    const unique = [];
-    for (const item of catalogItems || []) {
+    const groups = new Map();
+    const buscaAtiva = (catalogQuery || quickForm.product_name || "").trim();
+    const queryNorm = normalizarTexto(buscaAtiva);
+    const tokens = queryNorm.split(/\s+/).filter(Boolean);
+    const tamanhoBusca = extrairTamanhoBusca(buscaAtiva);
+
+    for (const rawItem of catalogItems || []) {
+      const cleanedVariant = limparTipoArroz(rawItem?.product_name, rawItem?.variant_label);
       const key = [
-        normalizarTexto(item?.product_name),
-        normalizarTexto(item?.variant_label || "tradicional"),
-        normalizarTexto(item?.brand),
-        normalizarTexto(item?.package_size),
+        normalizarTexto(rawItem?.product_name),
+        normalizarTexto(cleanedVariant || "tradicional"),
+        normalizarTexto(rawItem?.brand),
       ].join("|");
-      if (seen.has(key)) continue;
-      seen.add(key);
-      unique.push(item);
+
+      const sizeRaw = String(rawItem?.package_size || "").trim();
+
+      if (!groups.has(key)) {
+        groups.set(key, {
+          ...rawItem,
+          variant_label: cleanedVariant,
+          package_size: sizeRaw,
+          _sizes: sizeRaw ? [sizeRaw] : [],
+        });
+        continue;
+      }
+
+      const current = groups.get(key);
+      if (sizeRaw && !current._sizes.includes(sizeRaw)) {
+        current._sizes.push(sizeRaw);
+      }
+      groups.set(key, current);
     }
+
+    const unique = Array.from(groups.values()).map((item) => {
+      const orderedSizes = [...item._sizes].sort((a, b) => {
+        const [ag, av] = tamanhoOrdenacao(a);
+        const [bg, bv] = tamanhoOrdenacao(b);
+        if (ag !== bg) return ag - bg;
+        return Number(av || 0) - Number(bv || 0);
+      });
+      const tamanhoPreferido = escolherTamanhoRepresentativo(orderedSizes, tamanhoBusca);
+      const sizeSummary =
+        orderedSizes.length <= 1
+          ? (orderedSizes[0] || item.package_size)
+          : `${orderedSizes[0]} até ${orderedSizes[orderedSizes.length - 1]} (${orderedSizes.length} tamanhos)`;
+      const itemComSize = {
+        ...item,
+        package_size: tamanhoPreferido || item.package_size,
+        size_summary: sizeSummary,
+      };
+
+      const tituloNorm = normalizarTexto(tituloCatalogo(itemComSize));
+      let score = 0;
+      if (tokens.length) {
+        const matched = tokens.filter((token) => tituloNorm.includes(token)).length;
+        score += matched * 20;
+        if (matched === tokens.length) score += 120;
+        const produtoNorm = normalizarTexto(itemComSize.product_name);
+        if (produtoNorm.startsWith(queryNorm)) score += 80;
+        if (tamanhoBusca && normalizarTexto(itemComSize.package_size).includes(tamanhoBusca)) {
+          score += 60;
+        }
+      }
+      return {
+        ...itemComSize,
+        _score: score,
+      };
+    });
+
+    unique.sort((a, b) => {
+      if (b._score !== a._score) return b._score - a._score;
+      return tituloCatalogo(a).localeCompare(tituloCatalogo(b), "pt-BR");
+    });
     return unique;
+  }, [catalogItems, catalogQuery, quickForm.product_name]);
+
+  const catalogBrandGroups = useMemo(() => {
+    const groups = new Map();
+    const seen = new Set();
+
+    for (const item of catalogItems || []) {
+      const cleanedVariant = limparTipoArroz(item?.product_name, item?.variant_label) || "Tradicional";
+      const normalizedProduct = normalizarTexto(item?.product_name);
+      const normalizedBrand = normalizarTexto(item?.brand);
+      const normalizedVariant = normalizarTexto(cleanedVariant);
+      const normalizedSize = normalizarTexto(item?.package_size);
+      const dedupKey = `${normalizedProduct}|${normalizedBrand}|${normalizedVariant}|${normalizedSize}`;
+      if (seen.has(dedupKey)) continue;
+      seen.add(dedupKey);
+
+      const groupKey = `${normalizedProduct}|${normalizedBrand}`;
+      const option = {
+        ...item,
+        variant_label: cleanedVariant,
+      };
+      if (!groups.has(groupKey)) {
+        groups.set(groupKey, {
+          key: groupKey,
+          product_name: item?.product_name || "",
+          brand: item?.brand || "",
+          category: item?.category || "",
+          source: item?.source || "",
+          options: [option],
+        });
+      } else {
+        groups.get(groupKey).options.push(option);
+      }
+    }
+
+    const list = Array.from(groups.values()).map((group) => {
+      group.options.sort((a, b) => {
+        const av = normalizarTexto(a.variant_label);
+        const bv = normalizarTexto(b.variant_label);
+        if (av !== bv) return av.localeCompare(bv, "pt-BR");
+        const [ag, avn] = tamanhoOrdenacao(a.package_size);
+        const [bg, bvn] = tamanhoOrdenacao(b.package_size);
+        if (ag !== bg) return ag - bg;
+        if (avn !== bvn) return avn - bvn;
+        return normalizarTexto(a.package_size).localeCompare(normalizarTexto(b.package_size), "pt-BR");
+      });
+      return group;
+    });
+
+    list.sort((a, b) => {
+      const ap = normalizarTexto(a.product_name);
+      const bp = normalizarTexto(b.product_name);
+      if (ap !== bp) return ap.localeCompare(bp, "pt-BR");
+      return normalizarTexto(a.brand).localeCompare(normalizarTexto(b.brand), "pt-BR");
+    });
+    return list;
   }, [catalogItems]);
 
   const opcoesTipo = useMemo(() => {
@@ -306,7 +512,7 @@ function App() {
   const refreshAccessToken = useCallback(async () => {
     if (!tokens?.refresh) {
       logout();
-      throw new Error("SessÃ£o expirada. Entre novamente.");
+      throw new Error("Sessão expirada. Entre novamente.");
     }
 
     const data = await requestJson("/api/auth/token/refresh/", {
@@ -324,7 +530,7 @@ function App() {
   const apiRequest = useCallback(
     async (path, options = {}) => {
       if (!tokens?.access) {
-        throw new Error("UsuÃ¡rio nÃ£o autenticado.");
+        throw new Error("Usuário não autenticado.");
       }
 
       const runRequest = (accessToken) =>
@@ -354,7 +560,7 @@ function App() {
             throw new Error(firstError);
           }
         }
-        throw new Error("NÃ£o foi possÃ­vel concluir a requisiÃ§Ã£o.");
+        throw new Error("Não foi possível concluir a requisição.");
       }
 
       return response.status === 204 ? null : body;
@@ -579,6 +785,19 @@ function App() {
     return () => clearTimeout(timer);
   }, [quickForm.product_name, searchCatalogByTerm]);
 
+  useEffect(() => {
+    const term = (catalogQuery || "").trim();
+    if (term.length < 2) {
+      setCatalogItems([]);
+      setCatalogMeta(EMPTY_CATALOG_META);
+      return;
+    }
+    const timer = setTimeout(() => {
+      searchCatalogByTerm(term);
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [catalogQuery, searchCatalogByTerm]);
+
   async function handleLogin(event) {
     event.preventDefault();
     setAuthError("");
@@ -602,6 +821,7 @@ function App() {
 
   function applyCatalogItem(item) {
     if (!item) return;
+    const variantLabel = limparTipoArroz(item.product_name, item.variant_label);
     setQuickForm((prev) => ({
       ...prev,
       department_names: item.department_names?.length
@@ -610,18 +830,206 @@ function App() {
       category_name: item.category || prev.category_name,
       product_name: item.product_name || prev.product_name,
       brand: item.brand || prev.brand,
-      variant_label: item.variant_label || prev.variant_label,
+      variant_label: variantLabel || prev.variant_label,
       package_size: item.package_size || prev.package_size,
       package_name: item.package_name || prev.package_name,
       package_units: String(item.package_units || prev.package_units || "1"),
     }));
-    setToast("Produto aplicado ao formulÃ¡rio.");
+    setToast("Produto aplicado ao formulário.");
+  }
+
+  function selectCatalogBrand(group) {
+    if (!group?.options?.length) return;
+    const first = group.options[0];
+    const firstVariant = first.variant_label || "Tradicional";
+    const sizeOptions = group.options
+      .filter(
+        (entry) =>
+          normalizarTexto(entry.variant_label || "Tradicional") ===
+          normalizarTexto(firstVariant)
+      )
+      .map((entry) => entry.package_size)
+      .filter(Boolean)
+      .sort((a, b) => {
+        const [ag, av] = tamanhoOrdenacao(a);
+        const [bg, bv] = tamanhoOrdenacao(b);
+        if (ag !== bg) return ag - bg;
+        if (av !== bv) return av - bv;
+        return normalizarTexto(a).localeCompare(normalizarTexto(b), "pt-BR");
+      });
+    const firstSize = sizeOptions[0] || first.package_size || "";
+    setCatalogChoices((prev) => ({
+      ...prev,
+      [group.key]: prev[group.key] || {
+        variant: firstVariant,
+        size: firstSize,
+        quantity: quickForm.quantity || "1",
+      },
+    }));
+    setExpandedCatalogGroups((prev) =>
+      prev.includes(group.key) ? prev : [...prev, group.key]
+    );
+  }
+
+  function applyCatalogBrandSelection(group) {
+    if (!group?.options?.length) return;
+    const variantOptions = Array.from(
+      new Set(group.options.map((entry) => entry.variant_label || "Tradicional"))
+    );
+    const rawChoice = catalogChoices[group.key] || {};
+    const chosenVariant = rawChoice.variant || variantOptions[0] || "Tradicional";
+    const sizeOptions = group.options
+      .filter(
+        (entry) =>
+          normalizarTexto(entry.variant_label || "Tradicional") === normalizarTexto(chosenVariant)
+      )
+      .map((entry) => entry.package_size)
+      .filter(Boolean)
+      .sort((a, b) => {
+        const [ag, av] = tamanhoOrdenacao(a);
+        const [bg, bv] = tamanhoOrdenacao(b);
+        if (ag !== bg) return ag - bg;
+        if (av !== bv) return av - bv;
+        return normalizarTexto(a).localeCompare(normalizarTexto(b), "pt-BR");
+      });
+    const chosenSize = rawChoice.size || sizeOptions[0] || "";
+    const qty = Number(rawChoice.quantity || 1);
+    if (qty < 1) {
+      setError("A quantidade deve ser no mínimo 1.");
+      return;
+    }
+    const selected =
+      group.options.find(
+        (entry) =>
+          normalizarTexto(entry.variant_label || "Tradicional") ===
+            normalizarTexto(chosenVariant) &&
+          normalizarTexto(entry.package_size) === normalizarTexto(chosenSize)
+      ) || group.options[0];
+
+    applyCatalogItem(selected);
+    setQuickForm((prev) => ({ ...prev, quantity: String(qty) }));
+    setToast("Marca e tamanho aplicados ao formulário.");
+  }
+
+  function addCatalogBrandSelection(group) {
+    if (!group?.options?.length) return;
+    const variantOptions = Array.from(
+      new Set(group.options.map((entry) => entry.variant_label || "Tradicional"))
+    );
+    const rawChoice = catalogChoices[group.key] || {};
+    const chosenVariant = rawChoice.variant || variantOptions[0] || "Tradicional";
+    const sizeOptions = group.options
+      .filter(
+        (entry) =>
+          normalizarTexto(entry.variant_label || "Tradicional") === normalizarTexto(chosenVariant)
+      )
+      .map((entry) => entry.package_size)
+      .filter(Boolean)
+      .sort((a, b) => {
+        const [ag, av] = tamanhoOrdenacao(a);
+        const [bg, bv] = tamanhoOrdenacao(b);
+        if (ag !== bg) return ag - bg;
+        if (av !== bv) return av - bv;
+        return normalizarTexto(a).localeCompare(normalizarTexto(b), "pt-BR");
+      });
+    const chosenSize = rawChoice.size || sizeOptions[0] || "";
+    const qty = Number(rawChoice.quantity || 1);
+    if (qty < 1) {
+      setError("A quantidade deve ser no mínimo 1.");
+      return;
+    }
+
+    const selected =
+      group.options.find(
+        (entry) =>
+          normalizarTexto(entry.variant_label || "Tradicional") ===
+            normalizarTexto(chosenVariant) &&
+          normalizarTexto(entry.package_size) === normalizarTexto(chosenSize)
+      ) || group.options[0];
+
+    const price = Number(selected?.price || quickForm.price || 0);
+    if (!price || price <= 0) {
+      setError("Defina um preço no formulário para adicionar itens ao lote.");
+      return;
+    }
+
+    const entry = {
+      key: [
+        normalizarTexto(selected?.product_name),
+        normalizarTexto(selected?.brand),
+        normalizarTexto(selected?.variant_label || "Tradicional"),
+        normalizarTexto(selected?.package_size),
+      ].join("|"),
+      category_name: selected?.category || quickForm.category_name || "",
+      department_names: selected?.department_names?.length
+        ? selected.department_names
+        : quickForm.department_names,
+      product_name: selected?.product_name || "",
+      brand: selected?.brand || "",
+      variant_label: selected?.variant_label || "Tradicional",
+      package_size: selected?.package_size || "",
+      package_name: selected?.package_name || quickForm.package_name || "UNIDADE",
+      package_units: Number(selected?.package_units || quickForm.package_units || 1),
+      quantity: qty,
+      price,
+    };
+
+    setCatalogBatchEntries((prev) => {
+      const existingIndex = prev.findIndex((item) => item.key === entry.key);
+      if (existingIndex === -1) return [...prev, entry];
+      const updated = [...prev];
+      updated[existingIndex] = entry;
+      return updated;
+    });
+    setToast("Seleção adicionada ao lote.");
+  }
+
+  async function applyCatalogBatchSelections() {
+    if (!catalogBatchEntries.length) {
+      setError("Adicione pelo menos um item ao lote.");
+      return;
+    }
+    setCatalogBatchSaving(true);
+    setError("");
+    let successCount = 0;
+    const failedKeys = new Set();
+    const failures = [];
+
+    for (const entry of catalogBatchEntries) {
+      try {
+        await apiRequest("/api/items/quick-entry/", {
+          method: "POST",
+          body: JSON.stringify({
+            ...entry,
+            price: Number(entry.price),
+            quantity: Number(entry.quantity),
+            package_units: Number(entry.package_units || 1),
+          }),
+        });
+        successCount += 1;
+      } catch (submitError) {
+        failedKeys.add(entry.key);
+        failures.push(`${entry.product_name} ${entry.brand}: ${submitError.message}`);
+      }
+    }
+
+    await Promise.all([loadItems(), loadMetrics(), loadPresets()]);
+    setCatalogBatchSaving(false);
+    if (successCount) {
+      setToast(`${successCount} item(ns) do lote processado(s).`);
+    }
+    if (failures.length) {
+      setError(`Falhas no lote (${failures.length}): ${failures.slice(0, 2).join(" | ")}`);
+      setCatalogBatchEntries((prev) => prev.filter((entry) => failedKeys.has(entry.key)));
+      return;
+    }
+    setCatalogBatchEntries([]);
   }
 
   async function handleCatalogBarcodeLookup() {
     const code = (barcodeQuery || "").trim();
     if (!code) {
-      setError("Informe um cÃ³digo de barras para buscar.");
+      setError("Informe um código de barras para buscar.");
       return;
     }
     setCatalogLoading(true);
@@ -634,10 +1042,10 @@ function App() {
       if (item) {
         applyCatalogItem(item);
       } else {
-        setToast("Nenhum produto encontrado para esse cÃ³digo.");
+        setToast("Nenhum produto encontrado para esse código.");
       }
       if (data.meta && !data.meta.bluesoft_configurada) {
-        setToast("Bluesoft nÃ£o configurada neste terminal. Usando catÃ¡logo local.");
+        setToast("Bluesoft não configurada neste terminal. Usando catálogo local.");
       }
     } catch (lookupError) {
       setError(lookupError.message);
@@ -649,7 +1057,7 @@ function App() {
   async function handleCatalogSearch() {
     const query = (catalogQuery || "").trim();
     if (query.length < 2) {
-      setError("Digite ao menos 2 caracteres para pesquisar no catÃ¡logo.");
+      setError("Digite ao menos 2 caracteres para pesquisar no catálogo.");
       return;
     }
     setCatalogLoading(true);
@@ -662,14 +1070,14 @@ function App() {
           params.set("department", setorAtivo.name);
         }
       }
-      const data = await apiRequest(/api/catalog/lookup/?);
+      const data = await apiRequest(`/api/catalog/lookup/?${params.toString()}`);
       setCatalogItems(data.items || []);
       setCatalogMeta(data.meta || EMPTY_CATALOG_META);
       if (!(data.items || []).length) {
         setToast("Nenhum produto encontrado para essa busca.");
       }
       if (data.meta && !data.meta.bluesoft_configurada) {
-        setToast("Bluesoft nÃ£o configurada neste terminal. Usando catÃ¡logo local.");
+        setToast("Bluesoft não configurada neste terminal. Usando catálogo local.");
       }
     } catch (lookupError) {
       setError(lookupError.message);
@@ -681,13 +1089,12 @@ function App() {
   async function handleQuickEntry(event) {
     event.preventDefault();
     if (
-      !quickForm.category_name ||
       !quickForm.product_name ||
       !quickForm.brand ||
       !quickForm.package_size ||
       !quickForm.price
     ) {
-      setError("Preencha categoria, produto, marca, tamanho da embalagem e preÃ§o.");
+      setError("Preencha produto, marca, tamanho da embalagem e preço.");
       return;
     }
 
@@ -718,7 +1125,7 @@ function App() {
   async function handleRestock(itemId) {
     const qty = Number(restockQty[itemId] || 1);
     if (qty < 1) {
-      setError("A quantidade de reposicao deve ser no minimo 1.");
+      setError("A quantidade de reposição deve ser no mínimo 1.");
       return;
     }
 
@@ -737,7 +1144,7 @@ function App() {
     }
   }
 
-  async function handleOperacaoEstoque(event) {
+  async function handleOperaçãoEstoque(event) {
     event.preventDefault();
     if (!operacaoForm.variant_id) {
       setError("Selecione um item para movimentar.");
@@ -771,7 +1178,7 @@ function App() {
         method: "POST",
         body: JSON.stringify(payload),
       });
-      setToast("Movimentacao registrada.");
+      setToast("Movimentação registrada.");
       setOperacaoForm((prev) => ({ ...emptyOperacaoForm, tipo: prev.tipo }));
       await Promise.all([loadItems(), loadMetrics(), loadMovimentos()]);
     } catch (operationError) {
@@ -784,7 +1191,7 @@ function App() {
   if (authLoading) {
     return (
       <main className="layout">
-        <p>Validando sessao...</p>
+        <p>Validando sessão...</p>
       </main>
     );
   }
@@ -795,12 +1202,12 @@ function App() {
         <header className="hero">
           <p className="eyebrow">Mercado Stack</p>
           <h1>Entrar</h1>
-          <p>Use um usuario cadastrado para acessar o sistema.</p>
+          <p>Use um usuário cadastrado para acessar o sistema.</p>
         </header>
         <section className="panel auth-card">
           <form className="form-grid" onSubmit={handleLogin}>
             <label>
-              UsuÃ¡rio
+              Usuário
               <input
                 value={loginForm.username}
                 onChange={(event) =>
@@ -826,7 +1233,7 @@ function App() {
           </form>
           {authError ? <p className="feedback error">{authError}</p> : null}
           <p className="hint">
-            UsuÃ¡rios de teste: <code>manager / Manager@123</code> e{" "}
+            Usuários de teste: <code>manager / Manager@123</code> e{" "}
             <code>viewer / Viewer@123</code>
           </p>
         </section>
@@ -840,11 +1247,11 @@ function App() {
         <div>
           <p className="eyebrow">Mercado Stack</p>
           <h1>Gestao de estoque</h1>
-          <p>Cadastro por categoria e movimentaÃ§Ã£o por embalagem (fardo, caixa, unidade).</p>
+          <p>Cadastro por categoria e movimentação por embalagem (fardo, caixa, unidade).</p>
         </div>
         <div className="session-box">
           <strong>{session.username}</strong>
-          <span>{canWrite ? "Gerente de catÃ¡logo" : "Visualizador"}</span>
+          <span>{canWrite ? "Gerente de catálogo" : "Visualizador"}</span>
           <button type="button" className="ghost" onClick={logout}>
             Sair
           </button>
@@ -893,7 +1300,7 @@ function App() {
                 setSetorAtivoId(String(setor.id));
               }}
             >
-              {setor.name}
+              {corrigirOrtografiaUI(setor.name)}
             </button>
           ))}
         </div>
@@ -901,57 +1308,200 @@ function App() {
 
       {canWrite ? (
         <section className="panel">
-          <h2>Entrada rÃ¡pida (cria ou repÃµe automaticamente)</h2>
+          <h2>Entrada rápida (cria ou repõe automaticamente)</h2>
           <p className="hint">
-            Dica: ao informar o produto (ex: Leite, Arroz, Refrigerante), o formulÃ¡rio
+            Dica: ao informar o produto (ex: Leite, Arroz, Refrigerante), o formulário
             sugere automaticamente tipo, tamanho e embalagem mais comum.
           </p>
           <div className="catalog-assistant">
-            <h3>Assistente de catÃ¡logo</h3>
+            <h3>Assistente de catálogo</h3>
             <p className="hint">
-              Fonte ativa: {catalogMeta.bluesoft_configurada ? "Bluesoft + local" : "CatÃ¡logo local (configure Bluesoft)"}.
-              {catalogMeta.resultados_bluesoft || catalogMeta.resultados_locais
-                ? ` Resultados: Bluesoft ${catalogMeta.resultados_bluesoft || 0}, local ${catalogMeta.resultados_locais || 0}.`
+              Fonte ativa: {catalogMeta.bluesoft_configurada ? "Bluesoft + local" : "Catálogo local (configure Bluesoft)"}.
+              {catalogMeta.resultados_bluesoft || catalogMeta.resultados_locais || catalogMeta.resultados_estoque
+                ? ` Resultados: estoque ${catalogMeta.resultados_estoque || 0}, Bluesoft ${catalogMeta.resultados_bluesoft || 0}, local ${catalogMeta.resultados_locais || 0}.`
                 : ""}
             </p>
             <div className="catalog-search-row">
               <input
                 value={barcodeQuery}
                 onChange={(event) => setBarcodeQuery(event.target.value)}
-                placeholder="CÃ³digo de barras (EAN/GTIN)"
+                placeholder="Código de barras (EAN/GTIN)"
               />
               <button type="button" onClick={handleCatalogBarcodeLookup} disabled={catalogLoading}>
-                {catalogLoading ? "Buscando..." : "Buscar por cÃ³digo"}
+                {catalogLoading ? "Buscando..." : "Buscar por código"}
               </button>
             </div>
             <div className="catalog-search-row">
               <input
                 value={catalogQuery}
                 onChange={(event) => setCatalogQuery(event.target.value)}
-                placeholder="Pesquisar produto no catÃ¡logo (ex: refrigerante cola)"
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") {
+                    event.preventDefault();
+                    handleCatalogSearch();
+                  }
+                }}
+                placeholder="Pesquisar produto no catálogo (ex: refrigerante cola)"
               />
               <button type="button" className="ghost" onClick={handleCatalogSearch} disabled={catalogLoading}>
                 Pesquisar nome
               </button>
             </div>
-            {catalogItemsDedup.length ? (
+            {catalogBrandGroups.length ? (
               <div className="catalog-results">
-                {catalogItemsDedup.slice(0, 20).map((item) => (
+                {catalogBatchEntries.length ? (
+                  <article className="catalog-item full-width">
+                    <div>
+                      <strong>Lote pronto: {catalogBatchEntries.length} item(ns)</strong>
+                      <p>
+                        {catalogBatchEntries
+                          .slice(0, 3)
+                          .map((entry) =>
+                            `${corrigirOrtografiaUI(entry.product_name)} ${corrigirOrtografiaUI(entry.variant_label)} — ${corrigirOrtografiaUI(entry.brand)} — ${corrigirOrtografiaUI(entry.package_size)} x${entry.quantity}`
+                          )
+                          .join(" | ")}
+                        {catalogBatchEntries.length > 3 ? " | ..." : ""}
+                      </p>
+                    </div>
+                    <div className="actions">
+                      <button type="button" onClick={applyCatalogBatchSelections} disabled={catalogBatchSaving}>
+                        {catalogBatchSaving ? "Processando lote..." : "Salvar lote"}
+                      </button>
+                      <button type="button" className="ghost" onClick={() => setCatalogBatchEntries([])}>
+                        Limpar lote
+                      </button>
+                    </div>
+                  </article>
+                ) : null}
+                {catalogBrandGroups.slice(0, 30).map((group) => {
+                  const produtoUi = corrigirOrtografiaUI(group.product_name);
+                  const marcaUi = corrigirOrtografiaUI(group.brand);
+                  const categoriaUi = corrigirOrtografiaUI(group.category);
+                  const expanded = expandedCatalogGroups.includes(group.key);
+                  const variantOptions = Array.from(
+                    new Set(group.options.map((entry) => entry.variant_label || "Tradicional"))
+                  );
+                  const choice = catalogChoices[group.key] || {
+                    variant: variantOptions[0] || "Tradicional",
+                    size: "",
+                    quantity: "1",
+                  };
+                  const sizeOptions = group.options
+                    .filter(
+                      (entry) =>
+                        normalizarTexto(entry.variant_label || "Tradicional") ===
+                        normalizarTexto(choice.variant || variantOptions[0] || "Tradicional")
+                    )
+                    .map((entry) => entry.package_size);
+                  const uniqueSizes = Array.from(new Set(sizeOptions));
+                  return (
                   <article
-                    key={`${item.source}-${item.product_name}-${item.variant_label}-${item.brand}-${item.package_size}`}
+                    key={group.key}
                     className="catalog-item"
                   >
                     <div>
                       <strong>
-                        {`${item.product_name} ${item.variant_label || "Tradicional"} — ${item.brand} — ${item.package_size}`}
+                        {`${produtoUi} — ${marcaUi}`}
                       </strong>
-                      <p>{item.category} - fonte: {item.source}</p>
+                      <p>{categoriaUi} - fonte: {group.source} - {group.options.length} variações</p>
                     </div>
-                    <button type="button" onClick={() => applyCatalogItem(item)}>
-                      Usar
-                    </button>
+                    <div>
+                      <button
+                        type="button"
+                        className="ghost"
+                        onClick={() => {
+                          if (expanded) {
+                            setExpandedCatalogGroups((prev) => prev.filter((key) => key !== group.key));
+                            return;
+                          }
+                          selectCatalogBrand(group);
+                        }}
+                      >
+                        {expanded ? "Ocultar seleção" : "Selecionar marca"}
+                      </button>
+                    </div>
+                    {expanded ? (
+                      <div className="form-grid" style={{ marginTop: "0.75rem" }}>
+                        <label>
+                          Tipo
+                          <select
+                            value={choice.variant}
+                            onChange={(event) =>
+                              setCatalogChoices((prev) => ({
+                                ...prev,
+                                [group.key]: {
+                                  ...(prev[group.key] || {}),
+                                  variant: event.target.value,
+                                  size: "",
+                                  quantity: (prev[group.key] || {}).quantity || "1",
+                                },
+                              }))
+                            }
+                          >
+                            {variantOptions.map((name) => (
+                              <option key={name} value={name}>
+                                {corrigirOrtografiaUI(name)}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+                        <label>
+                          Tamanho/Litros
+                          <select
+                            value={choice.size}
+                            onChange={(event) =>
+                              setCatalogChoices((prev) => ({
+                                ...prev,
+                                [group.key]: {
+                                  ...(prev[group.key] || {}),
+                                  size: event.target.value,
+                                  variant: (prev[group.key] || {}).variant || variantOptions[0] || "Tradicional",
+                                  quantity: (prev[group.key] || {}).quantity || "1",
+                                },
+                              }))
+                            }
+                          >
+                            <option value="">Selecione...</option>
+                            {uniqueSizes.map((size) => (
+                              <option key={size} value={size}>
+                                {corrigirOrtografiaUI(size)}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+                        <label>
+                          Quantidade
+                          <input
+                            type="number"
+                            min="1"
+                            step="1"
+                            value={choice.quantity}
+                            onChange={(event) =>
+                              setCatalogChoices((prev) => ({
+                                ...prev,
+                                [group.key]: {
+                                  ...(prev[group.key] || {}),
+                                  quantity: event.target.value,
+                                  variant: (prev[group.key] || {}).variant || variantOptions[0] || "Tradicional",
+                                  size: (prev[group.key] || {}).size || "",
+                                },
+                              }))
+                            }
+                          />
+                        </label>
+                        <div className="actions">
+                          <button type="button" className="ghost" onClick={() => addCatalogBrandSelection(group)}>
+                            Adicionar ao lote
+                          </button>
+                          <button type="button" onClick={() => applyCatalogBrandSelection(group)}>
+                            Usar no formulário
+                          </button>
+                        </div>
+                      </div>
+                    ) : null}
                   </article>
-                ))}
+                  );
+                })}
               </div>
             ) : null}
           </div>
@@ -975,7 +1525,7 @@ function App() {
                         }))
                       }
                     >
-                      {setor.name}
+                      {corrigirOrtografiaUI(setor.name)}
                     </button>
                   );
                 })}
@@ -1140,14 +1690,14 @@ function App() {
         </section>
       ) : (
         <section className="panel">
-          <p className="feedback">Modo visualizaÃ§Ã£o. Cadastro e reposiÃ§Ã£o bloqueados.</p>
+          <p className="feedback">Modo visualização. Cadastro e reposição bloqueados.</p>
         </section>
       )}
 
       {canWrite ? (
         <section className="panel">
-          <h2>Operacao de estoque</h2>
-          <form className="form-grid" onSubmit={handleOperacaoEstoque}>
+          <h2>Operação de estoque</h2>
+          <form className="form-grid" onSubmit={handleOperaçãoEstoque}>
             <label>
               Item
               <select
@@ -1159,13 +1709,13 @@ function App() {
                 <option value="">Selecione...</option>
                 {items.map((item) => (
                   <option key={item.id} value={item.id}>
-                    {item.product_name} {item.variant_label || "Padrao"} {item.package_size} ({item.brand})
+                    {item.product_name} {item.variant_label || "Padrão"} {item.package_size} ({item.brand})
                   </option>
                 ))}
               </select>
             </label>
             <label>
-              Tipo de movimentaÃ§Ã£o
+              Tipo de movimentação
               <select
                 value={operacaoForm.tipo}
                 onChange={(event) =>
@@ -1226,18 +1776,18 @@ function App() {
               </>
             )}
             <label className="full-width">
-              Observacao
+              Observação
               <input
                 value={operacaoForm.notes}
                 onChange={(event) =>
                   setOperacaoForm((prev) => ({ ...prev, notes: event.target.value }))
                 }
-                placeholder="Ex: compra semanal, venda balcao, ajuste inventario"
+                placeholder="Ex: compra semanal, venda balcão, ajuste inventário"
               />
             </label>
             <div className="actions full-width">
               <button type="submit" disabled={saving}>
-                {saving ? "Salvando..." : "Registrar movimentaÃ§Ã£o"}
+                {saving ? "Salvando..." : "Registrar movimentação"}
               </button>
             </div>
           </form>
@@ -1271,8 +1821,8 @@ function App() {
               <option value="-updated_at">Atualizados recentemente</option>
               <option value="-stock">Maior estoque</option>
               <option value="stock">Menor estoque</option>
-              <option value="-price">Maior preÃ§o</option>
-              <option value="price">Menor preÃ§o</option>
+              <option value="-price">Maior preço</option>
+              <option value="price">Menor preço</option>
             </select>
           </div>
         </div>
@@ -1293,18 +1843,18 @@ function App() {
                   <th>Tamanho</th>
                   <th>Preco</th>
                   <th>Estoque</th>
-                  <th>AÃ§Ã£o rÃ¡pida</th>
+                  <th>Ação rápida</th>
                 </tr>
               </thead>
               <tbody>
                 {items.map((item) => (
                   <tr key={item.id}>
-                    <td>{item.category_name}</td>
-                    <td>{(item.departments || []).join(", ") || "-"}</td>
-                    <td>{item.product_name}</td>
-                    <td>{item.brand}</td>
-                    <td>{item.variant_label || "Padrao"}</td>
-                    <td>{item.package_size}</td>
+                    <td>{corrigirOrtografiaUI(item.category_name)}</td>
+                    <td>{corrigirOrtografiaUI((item.departments || []).join(", ")) || "-"}</td>
+                    <td>{corrigirOrtografiaUI(item.product_name)}</td>
+                    <td>{corrigirOrtografiaUI(item.brand)}</td>
+                    <td>{corrigirOrtografiaUI(item.variant_label || "Padrão")}</td>
+                    <td>{corrigirOrtografiaUI(item.package_size)}</td>
                     <td>R$ {Number(item.price).toFixed(2)}</td>
                     <td>
                       <span className={item.stock < 5 ? "tag warning" : "tag good"}>
@@ -1370,7 +1920,7 @@ function App() {
             Anterior
           </button>
           <span>
-            PÃ¡gina {page} de {pageCount}
+            Página {page} de {pageCount}
           </span>
           <button
             type="button"
@@ -1378,14 +1928,14 @@ function App() {
             disabled={page >= pageCount}
             onClick={() => setPage((prev) => prev + 1)}
           >
-            PrÃ³xima
+            Próxima
           </button>
         </div>
       </section>
 
       <section className="panel">
         <h2>Movimentacoes recentes</h2>
-        {!movimentos.length ? <p>Sem movimentacoes recentes.</p> : null}
+        {!movimentos.length ? <p>Sem movimentações recentes.</p> : null}
         {movimentos.length ? (
           <div className="table-wrap">
             <table>
@@ -1403,10 +1953,10 @@ function App() {
                 {movimentos.slice(0, 10).map((mov) => (
                   <tr key={mov.id}>
                     <td>{new Date(mov.created_at).toLocaleString("pt-BR")}</td>
-                    <td>{mov.item_name}</td>
+                    <td>{corrigirOrtografiaUI(mov.item_name)}</td>
                     <td>{movimentoLabel[mov.movement_type] || mov.movement_type}</td>
-                    <td>{mov.variant_label || "Padrao"}</td>
-                    <td>{mov.package_name || "-"}</td>
+                    <td>{corrigirOrtografiaUI(mov.variant_label || "Padrão")}</td>
+                    <td>{corrigirOrtografiaUI(mov.package_name || "-")}</td>
                     <td>{mov.units_delta > 0 ? `+${mov.units_delta}` : mov.units_delta}</td>
                   </tr>
                 ))}
@@ -1423,5 +1973,7 @@ function App() {
 }
 
 export default App;
+
+
 
 
