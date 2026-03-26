@@ -838,15 +838,18 @@ function App() {
     setToast("Produto aplicado ao formulário.");
   }
 
-  function selectCatalogBrand(group) {
-    if (!group?.options?.length) return;
-    const first = group.options[0];
-    const firstVariant = first.variant_label || "Tradicional";
-    const sizeOptions = group.options
+  function getGroupVariantOptions(group) {
+    return Array.from(
+      new Set((group?.options || []).map((entry) => entry.variant_label || "Tradicional"))
+    );
+  }
+
+  function getGroupSizeOptions(group, variant) {
+    return (group?.options || [])
       .filter(
         (entry) =>
           normalizarTexto(entry.variant_label || "Tradicional") ===
-          normalizarTexto(firstVariant)
+          normalizarTexto(variant || "Tradicional")
       )
       .map((entry) => entry.package_size)
       .filter(Boolean)
@@ -857,15 +860,35 @@ function App() {
         if (av !== bv) return av - bv;
         return normalizarTexto(a).localeCompare(normalizarTexto(b), "pt-BR");
       });
+  }
+
+  function updateCatalogChoice(groupKey, updates, defaultVariant = "Tradicional") {
+    setCatalogChoices((prev) => {
+      const current = prev[groupKey] || {};
+      return {
+        ...prev,
+        [groupKey]: {
+          variant: current.variant || defaultVariant,
+          size: current.size || "",
+          quantity: current.quantity || "1",
+          ...current,
+          ...updates,
+        },
+      };
+    });
+  }
+
+  function selectCatalogBrand(group) {
+    if (!group?.options?.length) return;
+    const first = group.options[0];
+    const firstVariant = first.variant_label || "Tradicional";
+    const sizeOptions = getGroupSizeOptions(group, firstVariant);
     const firstSize = sizeOptions[0] || first.package_size || "";
-    setCatalogChoices((prev) => ({
-      ...prev,
-      [group.key]: prev[group.key] || {
-        variant: firstVariant,
-        size: firstSize,
-        quantity: quickForm.quantity || "1",
-      },
-    }));
+    updateCatalogChoice(group.key, {
+      variant: firstVariant,
+      size: firstSize,
+      quantity: quickForm.quantity || "1",
+    });
     setExpandedCatalogGroups((prev) =>
       prev.includes(group.key) ? prev : [...prev, group.key]
     );
@@ -925,25 +948,10 @@ function App() {
 
   function resolveCatalogGroupChoice(group) {
     if (!group?.options?.length) return null;
-    const variantOptions = Array.from(
-      new Set(group.options.map((entry) => entry.variant_label || "Tradicional"))
-    );
+    const variantOptions = getGroupVariantOptions(group);
     const rawChoice = catalogChoices[group.key] || {};
     const chosenVariant = rawChoice.variant || variantOptions[0] || "Tradicional";
-    const sizeOptions = group.options
-      .filter(
-        (entry) =>
-          normalizarTexto(entry.variant_label || "Tradicional") === normalizarTexto(chosenVariant)
-      )
-      .map((entry) => entry.package_size)
-      .filter(Boolean)
-      .sort((a, b) => {
-        const [ag, av] = tamanhoOrdenacao(a);
-        const [bg, bv] = tamanhoOrdenacao(b);
-        if (ag !== bg) return ag - bg;
-        if (av !== bv) return av - bv;
-        return normalizarTexto(a).localeCompare(normalizarTexto(b), "pt-BR");
-      });
+    const sizeOptions = getGroupSizeOptions(group, chosenVariant);
     const chosenSize = rawChoice.size || sizeOptions[0] || "";
     const qty = Number(rawChoice.quantity || 1);
     if (qty < 1) {
@@ -1120,7 +1128,7 @@ function App() {
     }
   }
 
-  async function handleOperaçãoEstoque(event) {
+  async function handleOperacaoEstoque(event) {
     event.preventDefault();
     if (!operacaoForm.variant_id) {
       setError("Selecione um item para movimentar.");
@@ -1357,21 +1365,16 @@ function App() {
                   const marcaUi = corrigirOrtografiaUI(group.brand);
                   const categoriaUi = corrigirOrtografiaUI(group.category);
                   const expanded = expandedCatalogGroups.includes(group.key);
-                  const variantOptions = Array.from(
-                    new Set(group.options.map((entry) => entry.variant_label || "Tradicional"))
-                  );
+                  const variantOptions = getGroupVariantOptions(group);
                   const choice = catalogChoices[group.key] || {
                     variant: variantOptions[0] || "Tradicional",
                     size: "",
                     quantity: "1",
                   };
-                  const sizeOptions = group.options
-                    .filter(
-                      (entry) =>
-                        normalizarTexto(entry.variant_label || "Tradicional") ===
-                        normalizarTexto(choice.variant || variantOptions[0] || "Tradicional")
-                    )
-                    .map((entry) => entry.package_size);
+                  const sizeOptions = getGroupSizeOptions(
+                    group,
+                    choice.variant || variantOptions[0] || "Tradicional"
+                  );
                   const uniqueSizes = Array.from(new Set(sizeOptions));
                   return (
                   <article
@@ -1406,15 +1409,11 @@ function App() {
                           <select
                             value={choice.variant}
                             onChange={(event) =>
-                              setCatalogChoices((prev) => ({
-                                ...prev,
-                                [group.key]: {
-                                  ...(prev[group.key] || {}),
-                                  variant: event.target.value,
-                                  size: "",
-                                  quantity: (prev[group.key] || {}).quantity || "1",
-                                },
-                              }))
+                              updateCatalogChoice(
+                                group.key,
+                                { variant: event.target.value, size: "" },
+                                variantOptions[0] || "Tradicional"
+                              )
                             }
                           >
                             {variantOptions.map((name) => (
@@ -1429,15 +1428,11 @@ function App() {
                           <select
                             value={choice.size}
                             onChange={(event) =>
-                              setCatalogChoices((prev) => ({
-                                ...prev,
-                                [group.key]: {
-                                  ...(prev[group.key] || {}),
-                                  size: event.target.value,
-                                  variant: (prev[group.key] || {}).variant || variantOptions[0] || "Tradicional",
-                                  quantity: (prev[group.key] || {}).quantity || "1",
-                                },
-                              }))
+                              updateCatalogChoice(
+                                group.key,
+                                { size: event.target.value },
+                                variantOptions[0] || "Tradicional"
+                              )
                             }
                           >
                             <option value="">Selecione...</option>
@@ -1456,15 +1451,11 @@ function App() {
                             step="1"
                             value={choice.quantity}
                             onChange={(event) =>
-                              setCatalogChoices((prev) => ({
-                                ...prev,
-                                [group.key]: {
-                                  ...(prev[group.key] || {}),
-                                  quantity: event.target.value,
-                                  variant: (prev[group.key] || {}).variant || variantOptions[0] || "Tradicional",
-                                  size: (prev[group.key] || {}).size || "",
-                                },
-                              }))
+                              updateCatalogChoice(
+                                group.key,
+                                { quantity: event.target.value },
+                                variantOptions[0] || "Tradicional"
+                              )
                             }
                           />
                         </label>
@@ -1676,7 +1667,7 @@ function App() {
       {canWrite ? (
         <section className="panel">
           <h2>Operação de estoque</h2>
-          <form className="form-grid" onSubmit={handleOperaçãoEstoque}>
+          <form className="form-grid" onSubmit={handleOperacaoEstoque}>
             <label>
               Item
               <select

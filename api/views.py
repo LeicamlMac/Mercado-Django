@@ -2,7 +2,7 @@
 import re
 
 from django.db import transaction
-from django.db.models import F, Q, Sum
+from django.db.models import F, Sum
 from django.db.models.functions import Lower
 from rest_framework import filters, status, viewsets
 from rest_framework.permissions import AllowAny, IsAuthenticated
