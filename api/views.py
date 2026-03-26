@@ -387,8 +387,6 @@ class CategoryViewSet(viewsets.ModelViewSet):
     ordering = ["name"]
 
     def get_queryset(self):
-        for name in CATEGORY_ORDER:
-            Category.objects.get_or_create(name=name)
         return Category.objects.filter(name__in=ALLOWED_CATEGORIES).order_by(Lower("name"))
 
 
@@ -402,8 +400,6 @@ class DepartmentViewSet(viewsets.ModelViewSet):
     ordering = ["name"]
 
     def get_queryset(self):
-        for name in sorted(ALLOWED_DEPARTMENTS):
-            Department.objects.get_or_create(name=name)
         return (
             Department.objects.filter(name__in=ALLOWED_DEPARTMENTS)
             .order_by(Lower("name"))

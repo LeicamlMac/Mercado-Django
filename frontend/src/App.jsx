@@ -872,39 +872,9 @@ function App() {
   }
 
   function applyCatalogBrandSelection(group) {
-    if (!group?.options?.length) return;
-    const variantOptions = Array.from(
-      new Set(group.options.map((entry) => entry.variant_label || "Tradicional"))
-    );
-    const rawChoice = catalogChoices[group.key] || {};
-    const chosenVariant = rawChoice.variant || variantOptions[0] || "Tradicional";
-    const sizeOptions = group.options
-      .filter(
-        (entry) =>
-          normalizarTexto(entry.variant_label || "Tradicional") === normalizarTexto(chosenVariant)
-      )
-      .map((entry) => entry.package_size)
-      .filter(Boolean)
-      .sort((a, b) => {
-        const [ag, av] = tamanhoOrdenacao(a);
-        const [bg, bv] = tamanhoOrdenacao(b);
-        if (ag !== bg) return ag - bg;
-        if (av !== bv) return av - bv;
-        return normalizarTexto(a).localeCompare(normalizarTexto(b), "pt-BR");
-      });
-    const chosenSize = rawChoice.size || sizeOptions[0] || "";
-    const qty = Number(rawChoice.quantity || 1);
-    if (qty < 1) {
-      setError("A quantidade deve ser no mínimo 1.");
-      return;
-    }
-    const selected =
-      group.options.find(
-        (entry) =>
-          normalizarTexto(entry.variant_label || "Tradicional") ===
-            normalizarTexto(chosenVariant) &&
-          normalizarTexto(entry.package_size) === normalizarTexto(chosenSize)
-      ) || group.options[0];
+    const resolved = resolveCatalogGroupChoice(group);
+    if (!resolved) return;
+    const { selected, qty } = resolved;
 
     applyCatalogItem(selected);
     setQuickForm((prev) => ({ ...prev, quantity: String(qty) }));
@@ -912,40 +882,9 @@ function App() {
   }
 
   function addCatalogBrandSelection(group) {
-    if (!group?.options?.length) return;
-    const variantOptions = Array.from(
-      new Set(group.options.map((entry) => entry.variant_label || "Tradicional"))
-    );
-    const rawChoice = catalogChoices[group.key] || {};
-    const chosenVariant = rawChoice.variant || variantOptions[0] || "Tradicional";
-    const sizeOptions = group.options
-      .filter(
-        (entry) =>
-          normalizarTexto(entry.variant_label || "Tradicional") === normalizarTexto(chosenVariant)
-      )
-      .map((entry) => entry.package_size)
-      .filter(Boolean)
-      .sort((a, b) => {
-        const [ag, av] = tamanhoOrdenacao(a);
-        const [bg, bv] = tamanhoOrdenacao(b);
-        if (ag !== bg) return ag - bg;
-        if (av !== bv) return av - bv;
-        return normalizarTexto(a).localeCompare(normalizarTexto(b), "pt-BR");
-      });
-    const chosenSize = rawChoice.size || sizeOptions[0] || "";
-    const qty = Number(rawChoice.quantity || 1);
-    if (qty < 1) {
-      setError("A quantidade deve ser no mínimo 1.");
-      return;
-    }
-
-    const selected =
-      group.options.find(
-        (entry) =>
-          normalizarTexto(entry.variant_label || "Tradicional") ===
-            normalizarTexto(chosenVariant) &&
-          normalizarTexto(entry.package_size) === normalizarTexto(chosenSize)
-      ) || group.options[0];
+    const resolved = resolveCatalogGroupChoice(group);
+    if (!resolved) return;
+    const { selected, qty } = resolved;
 
     const price = Number(selected?.price || quickForm.price || 0);
     if (!price || price <= 0) {
@@ -982,6 +921,43 @@ function App() {
       return updated;
     });
     setToast("Seleção adicionada ao lote.");
+  }
+
+  function resolveCatalogGroupChoice(group) {
+    if (!group?.options?.length) return null;
+    const variantOptions = Array.from(
+      new Set(group.options.map((entry) => entry.variant_label || "Tradicional"))
+    );
+    const rawChoice = catalogChoices[group.key] || {};
+    const chosenVariant = rawChoice.variant || variantOptions[0] || "Tradicional";
+    const sizeOptions = group.options
+      .filter(
+        (entry) =>
+          normalizarTexto(entry.variant_label || "Tradicional") === normalizarTexto(chosenVariant)
+      )
+      .map((entry) => entry.package_size)
+      .filter(Boolean)
+      .sort((a, b) => {
+        const [ag, av] = tamanhoOrdenacao(a);
+        const [bg, bv] = tamanhoOrdenacao(b);
+        if (ag !== bg) return ag - bg;
+        if (av !== bv) return av - bv;
+        return normalizarTexto(a).localeCompare(normalizarTexto(b), "pt-BR");
+      });
+    const chosenSize = rawChoice.size || sizeOptions[0] || "";
+    const qty = Number(rawChoice.quantity || 1);
+    if (qty < 1) {
+      setError("A quantidade deve ser no mínimo 1.");
+      return null;
+    }
+    const selected =
+      group.options.find(
+        (entry) =>
+          normalizarTexto(entry.variant_label || "Tradicional") ===
+            normalizarTexto(chosenVariant) &&
+          normalizarTexto(entry.package_size) === normalizarTexto(chosenSize)
+      ) || group.options[0];
+    return { selected, qty };
   }
 
   async function applyCatalogBatchSelections() {
@@ -1321,6 +1297,9 @@ function App() {
                 ? ` Resultados: estoque ${catalogMeta.resultados_estoque || 0}, Bluesoft ${catalogMeta.resultados_bluesoft || 0}, local ${catalogMeta.resultados_locais || 0}.`
                 : ""}
             </p>
+            <p className="hint">
+              Para selecionar 2 ou mais marcas no mesmo lançamento, abra as marcas desejadas, adicione cada uma ao lote e depois clique em <strong>Salvar lote</strong>.
+            </p>
             <div className="catalog-search-row">
               <input
                 value={barcodeQuery}
@@ -1417,7 +1396,7 @@ function App() {
                           selectCatalogBrand(group);
                         }}
                       >
-                        {expanded ? "Ocultar seleção" : "Selecionar marca"}
+                        {expanded ? "Fechar seleção" : "Selecionar marca"}
                       </button>
                     </div>
                     {expanded ? (

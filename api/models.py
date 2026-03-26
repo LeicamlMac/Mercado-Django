@@ -12,6 +12,9 @@ class Category(models.Model):
         ordering = ["name"]
         verbose_name = "categoria"
         verbose_name_plural = "categorias"
+        indexes = [
+            models.Index(fields=["is_active"], name="category_is_active_idx"),
+        ]
 
     def __str__(self):
         return self.name
@@ -27,6 +30,9 @@ class Department(models.Model):
         ordering = ["name"]
         verbose_name = "setor"
         verbose_name_plural = "setores"
+        indexes = [
+            models.Index(fields=["is_active"], name="department_is_active_idx"),
+        ]
 
     def __str__(self):
         return self.name
@@ -56,6 +62,11 @@ class ProductBase(models.Model):
             models.UniqueConstraint(
                 fields=["category", "name", "brand"], name="unique_base_product"
             )
+        ]
+        indexes = [
+            models.Index(fields=["name"], name="product_base_name_idx"),
+            models.Index(fields=["brand"], name="product_base_brand_idx"),
+            models.Index(fields=["is_active"], name="product_base_active_idx"),
         ]
 
     def __str__(self):
@@ -87,6 +98,12 @@ class ProductVariant(models.Model):
                 name="unique_product_variant_size",
             )
         ]
+        indexes = [
+            models.Index(fields=["is_active"], name="variant_is_active_idx"),
+            models.Index(fields=["stock"], name="variant_stock_idx"),
+            models.Index(fields=["updated_at"], name="variant_updated_at_idx"),
+            models.Index(fields=["product", "is_active"], name="variant_product_active_idx"),
+        ]
 
     def __str__(self):
         variant = self.variant_label or "Padrao"
@@ -115,6 +132,9 @@ class ProductPackage(models.Model):
             models.UniqueConstraint(
                 fields=["variant", "name"], name="unique_variant_package_name"
             )
+        ]
+        indexes = [
+            models.Index(fields=["variant", "is_active"], name="package_variant_active_idx"),
         ]
 
     def __str__(self):
@@ -166,6 +186,11 @@ class StockMovement(models.Model):
         ordering = ["-created_at", "-id"]
         verbose_name = "movimentacao de estoque"
         verbose_name_plural = "movimentacoes de estoque"
+        indexes = [
+            models.Index(fields=["created_at"], name="movement_created_at_idx"),
+            models.Index(fields=["variant", "created_at"], name="movement_variant_created_idx"),
+            models.Index(fields=["movement_type", "created_at"], name="movement_type_created_idx"),
+        ]
 
     def __str__(self):
         return f"{self.variant} {self.movement_type} {self.units_delta:+d}"
