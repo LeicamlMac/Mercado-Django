@@ -2,6 +2,30 @@
 import "./App.css";
 
 const STORAGE_KEY = "mercado_auth_tokens";
+const THEME_STORAGE_KEY = "mercado_theme";
+const DEFAULT_ORDERING = "product__name,product__brand,variant_label,package_size";
+
+const ORDERING_OPTIONS = [
+  { value: "product__name,product__brand,variant_label,package_size", label: "Produto (A-Z)" },
+  { value: "-product__name,-product__brand,-variant_label,-package_size", label: "Produto (Z-A)" },
+  { value: "-updated_at", label: "Atualizados recentemente" },
+  { value: "-price", label: "Maior preço" },
+  { value: "price", label: "Menor preço" },
+];
+
+const STATUS_FILTER_OPTIONS = [
+  { value: "all", label: "Todos" },
+  { value: "true", label: "Ativos" },
+  { value: "false", label: "Inativos" },
+];
+
+const MOVIMENTO_LIMIT_OPTIONS = ["12", "24", "50"];
+
+const MOVIMENTO_ENDPOINTS = {
+  RECEIVE: "/api/items/receive/",
+  SELL: "/api/items/sell/",
+  ADJUST: "/api/items/adjust/",
+};
 
 const emptyQuickForm = {
   department_names: [],
@@ -52,6 +76,14 @@ const EMPTY_CATALOG_META = {
   resultados_locais: 0,
   fonte_item: "",
 };
+
+function ThemeToggleButton({ theme, onToggle }) {
+  return (
+    <button type="button" className="theme-toggle" onClick={onToggle}>
+      {theme === "dark" ? "Claro" : "Escuro"}
+    </button>
+  );
+}
 
 function normalizarTexto(value) {
   return (value || "")
@@ -117,36 +149,6 @@ function limparTipoArroz(productName, variantLabel) {
   return rotulo.replace(/\btipo\s*\d+\b/gi, "").replace(/\s{2,}/g, " ").trim();
 }
 
-function tituloCatalogo(item) {
-  const produto = corrigirOrtografiaUI(item?.product_name);
-  const variante = corrigirOrtografiaUI(item?.variant_label || "Tradicional");
-  const marca = corrigirOrtografiaUI(item?.brand);
-  const tamanho = corrigirOrtografiaUI(item?.size_summary || item?.package_size);
-  return `${produto} ${variante} — ${marca} — ${tamanho}`.trim();
-}
-
-function extrairTamanhoBusca(query) {
-  const match = normalizarTexto(query).match(/(\d+(?:[.,]\d+)?)\s*(kg|g|l|ml|un)/i);
-  if (!match) return "";
-  return `${String(match[1]).replace(",", ".")}${match[2].toLowerCase()}`;
-}
-
-function escolherTamanhoRepresentativo(orderedSizes, tamanhoBusca) {
-  if (!orderedSizes.length) return "";
-  if (tamanhoBusca) {
-    const exact = orderedSizes.find((size) =>
-      normalizarTexto(size).includes(tamanhoBusca)
-    );
-    if (exact) return exact;
-  }
-  const preferidos = ["1kg", "1l", "500g", "350ml", "90g", "12un"];
-  for (const pref of preferidos) {
-    const hit = orderedSizes.find((size) => normalizarTexto(size).includes(pref));
-    if (hit) return hit;
-  }
-  return orderedSizes[0];
-}
-
 function regraPossuiProduto(regra) {
   return (regra?.products || []).length > 0;
 }
@@ -180,6 +182,25 @@ function saveStoredTokens(tokens) {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(tokens));
 }
 
+function loadStoredTheme() {
+  try {
+    const saved = localStorage.getItem(THEME_STORAGE_KEY);
+    if (saved === "light" || saved === "dark") return saved;
+  } catch {
+    // ignore and fallback
+  }
+  return window.matchMedia?.("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+}
+
+function formatCurrency(value) {
+  return `R$ ${Number(value || 0).toFixed(2)}`;
+}
+
+function formatDateTimePtBr(value) {
+  if (!value) return "-";
+  return new Date(value).toLocaleString("pt-BR");
+}
+
 async function requestJson(path, options = {}) {
   const response = await fetch(path, options);
   const body = await response.json().catch(() => ({}));
@@ -201,6 +222,7 @@ async function requestJson(path, options = {}) {
 }
 
 function App() {
+  const [theme, setTheme] = useState(() => loadStoredTheme());
   const [tokens, setTokens] = useState(() => loadStoredTokens());
   const [session, setSession] = useState(null);
   const [authLoading, setAuthLoading] = useState(true);
@@ -230,8 +252,9 @@ function App() {
   const [setorAtivoId, setSetorAtivoId] = useState("all");
   const [setores, setSetores] = useState([]);
   const [search, setSearch] = useState("");
+  const [searchApplied, setSearchApplied] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
-  const [ordering, setOrdering] = useState("-updated_at");
+  const [ordering, setOrdering] = useState(DEFAULT_ORDERING);
   const [page, setPage] = useState(1);
   const [pageCount, setPageCount] = useState(1);
   const [loading, setLoading] = useState(false);
@@ -239,6 +262,12 @@ function App() {
   const [restockQty, setRestockQty] = useState({});
   const [restockPackage, setRestockPackage] = useState({});
   const [operacaoForm, setOperacaoForm] = useState(emptyOperacaoForm);
+  const [operacaoItems, setOperacaoItems] = useState([]);
+  const [operacaoSearch, setOperacaoSearch] = useState("");
+  const [operacaoSearching, setOperacaoSearching] = useState(false);
+  const [operacaoContextLoading, setOperacaoContextLoading] = useState(false);
+  const [operacaoLastMovement, setOperacaoLastMovement] = useState(null);
+  const [showOperacaoAdvanced, setShowOperacaoAdvanced] = useState(false);
   const [movimentos, setMovimentos] = useState([]);
   const [error, setError] = useState("");
   const [toast, setToast] = useState("");
@@ -251,6 +280,49 @@ function App() {
   const [expandedCatalogGroups, setExpandedCatalogGroups] = useState([]);
   const [catalogBatchEntries, setCatalogBatchEntries] = useState([]);
   const [catalogBatchSaving, setCatalogBatchSaving] = useState(false);
+  const [movimentosLimit, setMovimentosLimit] = useState("12");
+
+  useEffect(() => {
+    document.documentElement.setAttribute("data-theme", theme);
+    try {
+      localStorage.setItem(THEME_STORAGE_KEY, theme);
+    } catch {
+      // ignore localStorage errors
+    }
+  }, [theme]);
+
+  const toggleTheme = useCallback(() => {
+    setTheme((prev) => (prev === "dark" ? "light" : "dark"));
+  }, []);
+
+  const resetCatalogAssistant = useCallback(() => {
+    setCatalogQuery("");
+    setCatalogItems([]);
+    setCatalogMeta(EMPTY_CATALOG_META);
+  }, []);
+
+  const handleSetorTodos = useCallback(() => {
+    setPage(1);
+    setSetorAtivoId("all");
+    resetCatalogAssistant();
+    setQuickForm((prev) => ({
+      ...prev,
+      department_names: [],
+      category_name: "",
+      product_name: "",
+      brand: "",
+      variant_label: "",
+    }));
+  }, [resetCatalogAssistant]);
+
+  const handleSetorSelect = useCallback(
+    (setorId) => {
+      setPage(1);
+      setSetorAtivoId(String(setorId));
+      resetCatalogAssistant();
+    },
+    [resetCatalogAssistant]
+  );
 
   const regraProdutoAtual = useMemo(() => {
     const nomeProduto = normalizarTexto(quickForm.product_name);
@@ -299,83 +371,6 @@ function App() {
     setorAtivoId,
     setores,
   ]);
-
-  const catalogItemsDedup = useMemo(() => {
-    const groups = new Map();
-    const buscaAtiva = (catalogQuery || quickForm.product_name || "").trim();
-    const queryNorm = normalizarTexto(buscaAtiva);
-    const tokens = queryNorm.split(/\s+/).filter(Boolean);
-    const tamanhoBusca = extrairTamanhoBusca(buscaAtiva);
-
-    for (const rawItem of catalogItems || []) {
-      const cleanedVariant = limparTipoArroz(rawItem?.product_name, rawItem?.variant_label);
-      const key = [
-        normalizarTexto(rawItem?.product_name),
-        normalizarTexto(cleanedVariant || "tradicional"),
-        normalizarTexto(rawItem?.brand),
-      ].join("|");
-
-      const sizeRaw = String(rawItem?.package_size || "").trim();
-
-      if (!groups.has(key)) {
-        groups.set(key, {
-          ...rawItem,
-          variant_label: cleanedVariant,
-          package_size: sizeRaw,
-          _sizes: sizeRaw ? [sizeRaw] : [],
-        });
-        continue;
-      }
-
-      const current = groups.get(key);
-      if (sizeRaw && !current._sizes.includes(sizeRaw)) {
-        current._sizes.push(sizeRaw);
-      }
-      groups.set(key, current);
-    }
-
-    const unique = Array.from(groups.values()).map((item) => {
-      const orderedSizes = [...item._sizes].sort((a, b) => {
-        const [ag, av] = tamanhoOrdenacao(a);
-        const [bg, bv] = tamanhoOrdenacao(b);
-        if (ag !== bg) return ag - bg;
-        return Number(av || 0) - Number(bv || 0);
-      });
-      const tamanhoPreferido = escolherTamanhoRepresentativo(orderedSizes, tamanhoBusca);
-      const sizeSummary =
-        orderedSizes.length <= 1
-          ? (orderedSizes[0] || item.package_size)
-          : `${orderedSizes[0]} até ${orderedSizes[orderedSizes.length - 1]} (${orderedSizes.length} tamanhos)`;
-      const itemComSize = {
-        ...item,
-        package_size: tamanhoPreferido || item.package_size,
-        size_summary: sizeSummary,
-      };
-
-      const tituloNorm = normalizarTexto(tituloCatalogo(itemComSize));
-      let score = 0;
-      if (tokens.length) {
-        const matched = tokens.filter((token) => tituloNorm.includes(token)).length;
-        score += matched * 20;
-        if (matched === tokens.length) score += 120;
-        const produtoNorm = normalizarTexto(itemComSize.product_name);
-        if (produtoNorm.startsWith(queryNorm)) score += 80;
-        if (tamanhoBusca && normalizarTexto(itemComSize.package_size).includes(tamanhoBusca)) {
-          score += 60;
-        }
-      }
-      return {
-        ...itemComSize,
-        _score: score,
-      };
-    });
-
-    unique.sort((a, b) => {
-      if (b._score !== a._score) return b._score - a._score;
-      return tituloCatalogo(a).localeCompare(tituloCatalogo(b), "pt-BR");
-    });
-    return unique;
-  }, [catalogItems, catalogQuery, quickForm.product_name]);
 
   const catalogBrandGroups = useMemo(() => {
     const groups = new Map();
@@ -433,72 +428,17 @@ function App() {
     return list;
   }, [catalogItems]);
 
-  const opcoesTipo = useMemo(() => {
-    if (regraProdutoAtual?.types?.length) return regraProdutoAtual.types;
-    const nomeProduto = normalizarTexto(quickForm.product_name);
-    if (!nomeProduto) return presets.variant_labels || [];
+  const operacaoItemSelecionado = useMemo(() => {
+    const id = Number(operacaoForm.variant_id || 0);
+    if (!id) return null;
+    return operacaoItems.find((item) => Number(item.id) === id) || null;
+  }, [operacaoForm.variant_id, operacaoItems]);
 
-    const tipos = new Set();
-    (catalogItemsDedup || []).forEach((item) => {
-      if (normalizarTexto(item.product_name) === nomeProduto && item.variant_label) {
-        tipos.add(item.variant_label);
-      }
-    });
-    return Array.from(tipos);
-  }, [regraProdutoAtual, presets.variant_labels, quickForm.product_name, catalogItemsDedup]);
-
-  const opcoesTamanho = useMemo(() => {
-    if (regraProdutoAtual?.sizes?.length) return regraProdutoAtual.sizes;
-    return presets.package_sizes || [];
-  }, [regraProdutoAtual, presets.package_sizes]);
-
-  const opcoesCategoria = useMemo(() => {
-    const nomeProduto = normalizarTexto(quickForm.product_name);
-    if (!nomeProduto) return presets.categories || [];
-
-    const categorias = new Set();
-    (items || []).forEach((item) => {
-      if (normalizarTexto(item.product_name) === nomeProduto && item.category_name) {
-        categorias.add(item.category_name);
-      }
-    });
-    (catalogItemsDedup || []).forEach((item) => {
-      if (normalizarTexto(item.product_name) === nomeProduto && item.category) {
-        categorias.add(item.category);
-      }
-    });
-    if (!categorias.size) return [];
-    return Array.from(categorias);
-  }, [quickForm.product_name, items, catalogItemsDedup, presets.categories]);
-
-  const opcoesMarca = useMemo(() => {
-    const nomeProduto = normalizarTexto(quickForm.product_name);
-    if (!nomeProduto) return presets.brands || [];
-
-    const marcas = new Set();
-    (items || []).forEach((item) => {
-      if (normalizarTexto(item.product_name) === nomeProduto && item.brand) {
-        marcas.add(item.brand);
-      }
-    });
-    (catalogItemsDedup || []).forEach((item) => {
-      if (normalizarTexto(item.product_name) === nomeProduto && item.brand) {
-        marcas.add(item.brand);
-      }
-    });
-    if (!marcas.size) return [];
-    return Array.from(marcas);
-  }, [quickForm.product_name, items, catalogItemsDedup, presets.brands]);
-
-  const opcoesProduto = useMemo(() => {
-    const merged = [...(presets.products || [])];
-    for (const item of catalogItemsDedup || []) {
-      if (item?.product_name && !merged.includes(item.product_name)) {
-        merged.push(item.product_name);
-      }
-    }
-    return merged;
-  }, [presets.products, catalogItemsDedup]);
+  const operacaoPackageOptions = useMemo(() => {
+    const options = new Set(["UNIDADE", ...(presets.package_names || [])]);
+    (operacaoItemSelecionado?.packages || []).forEach((name) => options.add(name));
+    return Array.from(options);
+  }, [presets.package_names, operacaoItemSelecionado]);
 
   const logout = useCallback(() => {
     setTokens(null);
@@ -600,11 +540,10 @@ function App() {
     const params = new URLSearchParams();
     params.set("page", String(page));
     params.set("ordering", ordering);
-    if (search.trim()) params.set("search", search.trim());
+    if (searchApplied.trim()) params.set("search", searchApplied.trim());
     if (statusFilter !== "all") params.set("is_active", statusFilter);
-    if (setorAtivoId !== "all") params.set("department_id", setorAtivoId);
     return params.toString();
-  }, [page, ordering, search, statusFilter, setorAtivoId]);
+  }, [page, ordering, searchApplied, statusFilter]);
 
   const loadItems = useCallback(async () => {
     if (!session) return;
@@ -635,12 +574,60 @@ function App() {
   const loadMovimentos = useCallback(async () => {
     if (!session) return;
     try {
-      const data = await apiRequest("/api/movements/?page=1");
+      const pageSize = Number(movimentosLimit || 12);
+      const data = await apiRequest(`/api/movements/?page=1&page_size=${pageSize}`);
       setMovimentos(data.results || []);
     } catch {
       // Optional in UI.
     }
+  }, [session, apiRequest, movimentosLimit]);
+
+  const loadOperacaoItems = useCallback(async (query = "", autoSelectFirst = false) => {
+    if (!session) return;
+    setOperacaoSearching(true);
+    try {
+      const params = new URLSearchParams();
+      if ((query || "").trim()) {
+        params.set("q", query.trim());
+      }
+      const path = params.toString()
+        ? `/api/items/choices/?${params.toString()}`
+        : "/api/items/choices/";
+      const data = await apiRequest(path);
+      const results = data.items || [];
+      setOperacaoItems(results);
+      if (autoSelectFirst && results.length) {
+        setOperacaoForm((prev) => ({ ...prev, variant_id: String(results[0].id) }));
+      }
+    } catch {
+      // Optional in UI.
+    } finally {
+      setOperacaoSearching(false);
+    }
   }, [session, apiRequest]);
+
+  async function handleOperacaoSearchSubmit() {
+    const term = (operacaoSearch || "").trim();
+    await loadOperacaoItems(term, true);
+  }
+
+  const loadOperacaoContext = useCallback(async () => {
+    const variantId = Number(operacaoForm.variant_id || 0);
+    if (!session || !variantId) {
+      setOperacaoLastMovement(null);
+      return;
+    }
+    setOperacaoContextLoading(true);
+    try {
+      const data = await apiRequest(`/api/movements/?variant_id=${variantId}&page=1&page_size=1`);
+      const first = (data.results || [])[0] || null;
+      setOperacaoLastMovement(first);
+    } catch {
+      setOperacaoLastMovement(null);
+    } finally {
+      setOperacaoContextLoading(false);
+    }
+  }, [session, apiRequest, operacaoForm.variant_id]);
 
   const loadPresets = useCallback(async () => {
     if (!session) return;
@@ -688,8 +675,24 @@ function App() {
     loadMetrics();
     loadPresets();
     loadMovimentos();
+    loadOperacaoItems();
     loadSetores();
-  }, [loadMetrics, loadPresets, loadMovimentos, loadSetores]);
+  }, [loadMetrics, loadPresets, loadMovimentos, loadOperacaoItems, loadSetores]);
+
+  useEffect(() => {
+    const term = (operacaoSearch || "").trim();
+    const timer = setTimeout(() => {
+      loadOperacaoItems(term, false);
+    }, 250);
+    return () => clearTimeout(timer);
+  }, [operacaoSearch, loadOperacaoItems]);
+
+  useEffect(() => {
+    if (!operacaoSearch.trim()) return;
+    if (operacaoForm.variant_id) return;
+    if (!operacaoItems.length) return;
+    setOperacaoForm((prev) => ({ ...prev, variant_id: String(operacaoItems[0].id) }));
+  }, [operacaoSearch, operacaoItems, operacaoForm.variant_id]);
 
   useEffect(() => {
     if (!toast) return;
@@ -698,18 +701,40 @@ function App() {
   }, [toast]);
 
   useEffect(() => {
+    const timer = setTimeout(() => {
+      setPage(1);
+      setSearchApplied(search);
+    }, 250);
+    return () => clearTimeout(timer);
+  }, [search]);
+
+  useEffect(() => {
+    loadOperacaoContext();
+  }, [loadOperacaoContext]);
+
+  useEffect(() => {
     if (setorAtivoId === "all") return;
     const setorAtivo = setores.find((s) => String(s.id) === String(setorAtivoId));
     if (!setorAtivo) return;
     setQuickForm((prev) => {
-      if (
+      const mesmoSetor =
         prev.department_names.length === 1 &&
-        prev.department_names[0] === setorAtivo.name
-      ) {
+        prev.department_names[0] === setorAtivo.name;
+      if (mesmoSetor) {
         return prev;
       }
-      return { ...prev, department_names: [setorAtivo.name] };
+      return {
+        ...prev,
+        department_names: [setorAtivo.name],
+        category_name: "",
+        product_name: "",
+        brand: "",
+        variant_label: "",
+      };
     });
+    setCatalogQuery("");
+    setCatalogItems([]);
+    setCatalogMeta(EMPTY_CATALOG_META);
   }, [setorAtivoId, setores]);
 
   useEffect(() => {
@@ -1070,42 +1095,6 @@ function App() {
     }
   }
 
-  async function handleQuickEntry(event) {
-    event.preventDefault();
-    if (
-      !quickForm.product_name ||
-      !quickForm.brand ||
-      !quickForm.package_size ||
-      !quickForm.price
-    ) {
-      setError("Preencha produto, marca, tamanho da embalagem e preço.");
-      return;
-    }
-
-    setSaving(true);
-    setError("");
-    try {
-      const payload = {
-        ...quickForm,
-        department_names: quickForm.department_names,
-        price: Number(quickForm.price),
-        quantity: Number(quickForm.quantity || 1),
-        package_units: Number(quickForm.package_units || 1),
-      };
-      const response = await apiRequest("/api/items/quick-entry/", {
-        method: "POST",
-        body: JSON.stringify(payload),
-      });
-      setToast(response.action === "created" ? "Item criado." : "Item reposto.");
-      setQuickForm((prev) => ({ ...prev, price: "", quantity: "1" }));
-      await Promise.all([loadItems(), loadMetrics(), loadPresets()]);
-    } catch (submitError) {
-      setError(submitError.message);
-    } finally {
-      setSaving(false);
-    }
-  }
-
   async function handleRestock(itemId) {
     const qty = Number(restockQty[itemId] || 1);
     if (qty < 1) {
@@ -1135,12 +1124,7 @@ function App() {
       return;
     }
 
-    const endpointMap = {
-      RECEIVE: "/api/items/receive/",
-      SELL: "/api/items/sell/",
-      ADJUST: "/api/items/adjust/",
-    };
-    const endpoint = endpointMap[operacaoForm.tipo];
+    const endpoint = MOVIMENTO_ENDPOINTS[operacaoForm.tipo];
     if (!endpoint) return;
 
     const payload = {
@@ -1174,59 +1158,67 @@ function App() {
 
   if (authLoading) {
     return (
-      <main className="layout">
-        <p>Validando sessão...</p>
-      </main>
+      <>
+        <ThemeToggleButton theme={theme} onToggle={toggleTheme} />
+        <main className="layout">
+          <p>Validando sessão...</p>
+        </main>
+      </>
     );
   }
 
   if (!session) {
     return (
-      <main className="layout">
-        <header className="hero">
-          <p className="eyebrow">Mercado Stack</p>
-          <h1>Entrar</h1>
-          <p>Use um usuário cadastrado para acessar o sistema.</p>
-        </header>
-        <section className="panel auth-card">
-          <form className="form-grid" onSubmit={handleLogin}>
-            <label>
-              Usuário
-              <input
-                value={loginForm.username}
-                onChange={(event) =>
-                  setLoginForm((prev) => ({ ...prev, username: event.target.value }))
-                }
-              />
-            </label>
-            <label>
-              Senha
-              <input
-                type="password"
-                value={loginForm.password}
-                onChange={(event) =>
-                  setLoginForm((prev) => ({ ...prev, password: event.target.value }))
-                }
-              />
-            </label>
-            <div className="actions full-width">
-              <button type="submit" disabled={loginLoading}>
-                {loginLoading ? "Entrando..." : "Entrar"}
-              </button>
-            </div>
-          </form>
-          {authError ? <p className="feedback error">{authError}</p> : null}
-          <p className="hint">
-            Usuários de teste: <code>manager / Manager@123</code> e{" "}
-            <code>viewer / Viewer@123</code>
-          </p>
-        </section>
-      </main>
+      <>
+        <ThemeToggleButton theme={theme} onToggle={toggleTheme} />
+        <main className="layout">
+          <header className="hero">
+            <p className="eyebrow">Mercado Stack</p>
+            <h1>Entrar</h1>
+            <p>Use um usuário cadastrado para acessar o sistema.</p>
+          </header>
+          <section className="panel auth-card">
+            <form className="form-grid" onSubmit={handleLogin}>
+              <label>
+                Usuário
+                <input
+                  value={loginForm.username}
+                  onChange={(event) =>
+                    setLoginForm((prev) => ({ ...prev, username: event.target.value }))
+                  }
+                />
+              </label>
+              <label>
+                Senha
+                <input
+                  type="password"
+                  value={loginForm.password}
+                  onChange={(event) =>
+                    setLoginForm((prev) => ({ ...prev, password: event.target.value }))
+                  }
+                />
+              </label>
+              <div className="actions full-width">
+                <button type="submit" disabled={loginLoading}>
+                  {loginLoading ? "Entrando..." : "Entrar"}
+                </button>
+              </div>
+            </form>
+            {authError ? <p className="feedback error">{authError}</p> : null}
+            <p className="hint">
+              Usuários de teste: <code>manager / Manager@123</code> e{" "}
+              <code>viewer / Viewer@123</code>
+            </p>
+          </section>
+        </main>
+      </>
     );
   }
 
   return (
-    <main className="layout">
+    <>
+      <ThemeToggleButton theme={theme} onToggle={toggleTheme} />
+      <main className="layout">
       <header className="hero topbar">
         <div>
           <p className="eyebrow">Mercado Stack</p>
@@ -1267,10 +1259,7 @@ function App() {
           <button
             type="button"
             className={setorAtivoId === "all" ? "tab-setor ativo" : "tab-setor"}
-            onClick={() => {
-              setPage(1);
-              setSetorAtivoId("all");
-            }}
+            onClick={handleSetorTodos}
           >
             Todos
           </button>
@@ -1279,10 +1268,7 @@ function App() {
               key={setor.id}
               type="button"
               className={String(setor.id) === String(setorAtivoId) ? "tab-setor ativo" : "tab-setor"}
-              onClick={() => {
-                setPage(1);
-                setSetorAtivoId(String(setor.id));
-              }}
+              onClick={() => handleSetorSelect(setor.id)}
             >
               {corrigirOrtografiaUI(setor.name)}
             </button>
@@ -1475,188 +1461,9 @@ function App() {
               </div>
             ) : null}
           </div>
-          <form className="form-grid" onSubmit={handleQuickEntry}>
-            <label>
-              Setores (pode marcar mais de um)
-              <div className="setores-grid">
-                {setores.map((setor) => {
-                  const marcado = quickForm.department_names.includes(setor.name);
-                  return (
-                    <button
-                      key={setor.id}
-                      type="button"
-                      className={marcado ? "chip-setor ativo" : "chip-setor"}
-                      onClick={() =>
-                        setQuickForm((prev) => ({
-                          ...prev,
-                          department_names: marcado
-                            ? prev.department_names.filter((n) => n !== setor.name)
-                            : [...prev.department_names, setor.name],
-                        }))
-                      }
-                    >
-                      {corrigirOrtografiaUI(setor.name)}
-                    </button>
-                  );
-                })}
-              </div>
-            </label>
-            <label>
-              Categoria
-              <input
-                list="categories"
-                value={quickForm.category_name}
-                onChange={(event) =>
-                  setQuickForm((prev) => ({ ...prev, category_name: event.target.value }))
-                }
-                placeholder="Arroz, Feijao..."
-              />
-            </label>
-            <label>
-              Produto
-              <input
-                list="products"
-                value={quickForm.product_name}
-                onChange={(event) => {
-                  const proximoProduto = event.target.value;
-                  setCatalogQuery(proximoProduto);
-                  setCatalogItems([]);
-                  setCatalogMeta(EMPTY_CATALOG_META);
-                  setQuickForm((prev) => {
-                    const mudouProduto =
-                      normalizarTexto(prev.product_name) !== normalizarTexto(proximoProduto);
-                    if (!mudouProduto) {
-                      return { ...prev, product_name: proximoProduto };
-                    }
-                    return {
-                      ...prev,
-                      product_name: proximoProduto,
-                      // Evita "vazamento" de marca/tipo de outro produto.
-                      brand: "",
-                      variant_label: "",
-                    };
-                  });
-                }}
-                placeholder="Arroz"
-              />
-            </label>
-            <label>
-              Marca
-              <input
-                list="brands"
-                value={quickForm.brand}
-                onChange={(event) =>
-                  setQuickForm((prev) => ({ ...prev, brand: event.target.value }))
-                }
-                placeholder="Camil"
-              />
-            </label>
-            <label>
-              Tipo
-              <input
-                list="variants"
-                value={quickForm.variant_label}
-                onChange={(event) =>
-                  setQuickForm((prev) => ({ ...prev, variant_label: event.target.value }))
-                }
-                placeholder="Branco, Parboilizado..."
-              />
-            </label>
-            <label>
-              Tamanho
-              <input
-                list="sizes"
-                value={quickForm.package_size}
-                onChange={(event) =>
-                  setQuickForm((prev) => ({ ...prev, package_size: event.target.value }))
-                }
-                placeholder="1KG"
-              />
-            </label>
-            <label>
-              Embalagem da entrada
-              <input
-                list="package-names"
-                value={quickForm.package_name}
-                onChange={(event) =>
-                  setQuickForm((prev) => ({ ...prev, package_name: event.target.value }))
-                }
-                placeholder="UNIDADE, FARDO..."
-              />
-            </label>
-            <label>
-              Unidades por embalagem
-              <input
-                type="number"
-                min="1"
-                step="1"
-                value={quickForm.package_units}
-                onChange={(event) =>
-                  setQuickForm((prev) => ({ ...prev, package_units: event.target.value }))
-                }
-              />
-            </label>
-            <label>
-              Preco
-              <input
-                type="number"
-                min="0.01"
-                step="0.01"
-                value={quickForm.price}
-                onChange={(event) =>
-                  setQuickForm((prev) => ({ ...prev, price: event.target.value }))
-                }
-              />
-            </label>
-            <label>
-              Quantidade para entrada
-              <input
-                type="number"
-                min="1"
-                step="1"
-                value={quickForm.quantity}
-                onChange={(event) =>
-                  setQuickForm((prev) => ({ ...prev, quantity: event.target.value }))
-                }
-              />
-            </label>
-            <div className="actions full-width">
-              <button type="submit" disabled={saving}>
-                {saving ? "Processando..." : "Salvar entrada"}
-              </button>
-            </div>
-          </form>
-
-          <datalist id="categories">
-            {opcoesCategoria.map((name) => (
-              <option key={name} value={name} />
-            ))}
-          </datalist>
-          <datalist id="products">
-            {opcoesProduto.map((name) => (
-              <option key={name} value={name} />
-            ))}
-          </datalist>
-          <datalist id="brands">
-            {opcoesMarca.map((name) => (
-              <option key={name} value={name} />
-            ))}
-          </datalist>
-          <datalist id="variants">
-            {opcoesTipo.map((name) => (
-              <option key={name} value={name} />
-            ))}
-          </datalist>
-          <datalist id="sizes">
-            {opcoesTamanho.map((name) => (
-              <option key={name} value={name} />
-            ))}
-          </datalist>
-          <datalist id="package-names">
-            {presets.package_names.map((name) => (
-              <option key={name} value={name} />
-            ))}
-          </datalist>
+          <p className="hint">
+            Fluxo recomendado: use o Assistente de catálogo, adicione os itens ao lote e finalize em <strong>Salvar lote</strong>.
+          </p>
         </section>
       ) : (
         <section className="panel">
@@ -1667,7 +1474,60 @@ function App() {
       {canWrite ? (
         <section className="panel">
           <h2>Operação de estoque</h2>
+          <p className="hint">
+            Essa seção serve para movimentar estoque de um item já cadastrado: <strong>Receber</strong> (entrada), <strong>Venda</strong> (saída) e <strong>Ajuste</strong> (corrigir contagem).
+          </p>
+          <div className="operation-cards">
+            <article className="operation-card">
+              <span>Item selecionado</span>
+              <strong>{operacaoItemSelecionado?.label || "Nenhum item"}</strong>
+            </article>
+            <article className="operation-card">
+              <span>Estoque atual</span>
+              <strong>{operacaoItemSelecionado ? operacaoItemSelecionado.stock : "-"}</strong>
+            </article>
+            <article className="operation-card">
+              <span>Última movimentação</span>
+              <strong>
+                {operacaoContextLoading
+                  ? "Carregando..."
+                  : operacaoLastMovement
+                    ? `${movimentoLabel[operacaoLastMovement.movement_type] || operacaoLastMovement.movement_type} (${operacaoLastMovement.units_delta > 0 ? "+" : ""}${operacaoLastMovement.units_delta})`
+                    : "Sem histórico"}
+              </strong>
+            </article>
+            <article className="operation-card">
+              <span>Atualizado em</span>
+              <strong>
+                {formatDateTimePtBr(operacaoItemSelecionado?.updated_at)}
+              </strong>
+            </article>
+          </div>
           <form className="form-grid" onSubmit={handleOperacaoEstoque}>
+            <label>
+              Buscar item
+              <div className="catalog-search-row">
+                <input
+                  value={operacaoSearch}
+                  onChange={(event) => setOperacaoSearch(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter") {
+                      event.preventDefault();
+                      handleOperacaoSearchSubmit();
+                    }
+                  }}
+                  placeholder="Digite produto, marca, tipo ou tamanho..."
+                />
+                <button
+                  type="button"
+                  className="ghost"
+                  onClick={handleOperacaoSearchSubmit}
+                  disabled={operacaoSearching}
+                >
+                  {operacaoSearching ? "Buscando..." : "Buscar"}
+                </button>
+              </div>
+            </label>
             <label>
               Item
               <select
@@ -1677,12 +1537,16 @@ function App() {
                 }
               >
                 <option value="">Selecione...</option>
-                {items.map((item) => (
+                {operacaoItems.map((item) => (
                   <option key={item.id} value={item.id}>
-                    {item.product_name} {item.variant_label || "Padrão"} {item.package_size} ({item.brand})
+                    {item.label}
                   </option>
                 ))}
               </select>
+              {operacaoSearching ? <span className="muted">Buscando itens...</span> : null}
+              {!operacaoSearching && operacaoSearch.trim() && !operacaoItems.length ? (
+                <span className="muted">Nenhum item encontrado para essa busca.</span>
+              ) : null}
             </label>
             <label>
               Tipo de movimentação
@@ -1697,70 +1561,87 @@ function App() {
                 <option value="ADJUST">Ajuste</option>
               </select>
             </label>
+            <label>
+              {operacaoForm.tipo === "ADJUST" ? "Ajuste em unidades" : "Quantidade"}
+              <input
+                type="number"
+                min="1"
+                step="1"
+                value={
+                  operacaoForm.tipo === "ADJUST"
+                    ? operacaoForm.quantity_units
+                    : operacaoForm.package_quantity
+                }
+                onChange={(event) =>
+                  setOperacaoForm((prev) =>
+                    operacaoForm.tipo === "ADJUST"
+                      ? { ...prev, quantity_units: event.target.value }
+                      : { ...prev, package_quantity: event.target.value }
+                  )
+                }
+              />
+            </label>
+            <div className="actions full-width">
+              <button
+                type="button"
+                className="ghost"
+                onClick={() => setShowOperacaoAdvanced((prev) => !prev)}
+              >
+                {showOperacaoAdvanced ? "Ocultar detalhes avançados" : "Mostrar detalhes avançados"}
+              </button>
+            </div>
 
-            {operacaoForm.tipo === "ADJUST" ? (
-              <label>
-                Ajuste em unidades
-                <input
-                  type="number"
-                  step="1"
-                  value={operacaoForm.quantity_units}
-                  onChange={(event) =>
-                    setOperacaoForm((prev) => ({
-                      ...prev,
-                      quantity_units: event.target.value,
-                    }))
-                  }
-                />
-              </label>
-            ) : (
+            {showOperacaoAdvanced ? (
               <>
+                {operacaoForm.tipo !== "ADJUST" ? (
+                  <label>
+                    Embalagem
+                    <input
+                      list="operacao-package-names"
+                      value={operacaoForm.package_name}
+                      onChange={(event) =>
+                        setOperacaoForm((prev) => ({
+                          ...prev,
+                          package_name: event.target.value,
+                        }))
+                      }
+                    />
+                  </label>
+                ) : null}
                 <label>
-                  Embalagem
+                  Observação
                   <input
-                    list="package-names"
-                    value={operacaoForm.package_name}
+                    value={operacaoForm.notes}
                     onChange={(event) =>
-                      setOperacaoForm((prev) => ({
-                        ...prev,
-                        package_name: event.target.value,
-                      }))
+                      setOperacaoForm((prev) => ({ ...prev, notes: event.target.value }))
                     }
-                  />
-                </label>
-                <label>
-                  Quantidade de embalagens
-                  <input
-                    type="number"
-                    min="1"
-                    step="1"
-                    value={operacaoForm.package_quantity}
-                    onChange={(event) =>
-                      setOperacaoForm((prev) => ({
-                        ...prev,
-                        package_quantity: event.target.value,
-                      }))
-                    }
+                    placeholder="Ex: compra semanal, venda balcão, ajuste inventário"
                   />
                 </label>
               </>
+            ) : (
+              <label className="full-width">
+                Observação rápida (opcional)
+                <input
+                  value={operacaoForm.notes}
+                  onChange={(event) =>
+                    setOperacaoForm((prev) => ({ ...prev, notes: event.target.value }))
+                  }
+                  placeholder="Ex: compra semanal, venda balcão"
+                />
+              </label>
             )}
-            <label className="full-width">
-              Observação
-              <input
-                value={operacaoForm.notes}
-                onChange={(event) =>
-                  setOperacaoForm((prev) => ({ ...prev, notes: event.target.value }))
-                }
-                placeholder="Ex: compra semanal, venda balcão, ajuste inventário"
-              />
-            </label>
             <div className="actions full-width">
               <button type="submit" disabled={saving}>
                 {saving ? "Salvando..." : "Registrar movimentação"}
               </button>
             </div>
           </form>
+          <datalist id="operacao-package-names">
+            {operacaoPackageOptions.map((name) => (
+              <option key={name} value={name} />
+            ))}
+          </datalist>
         </section>
       ) : null}
 
@@ -1772,7 +1653,6 @@ function App() {
               placeholder="Buscar por produto, marca, tipo..."
               value={search}
               onChange={(event) => {
-                setPage(1);
                 setSearch(event.target.value);
               }}
             />
@@ -1783,24 +1663,26 @@ function App() {
                 setStatusFilter(event.target.value);
               }}
             >
-              <option value="all">Todos</option>
-              <option value="true">Ativos</option>
-              <option value="false">Inativos</option>
+              {STATUS_FILTER_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
             </select>
             <select value={ordering} onChange={(event) => setOrdering(event.target.value)}>
-              <option value="-updated_at">Atualizados recentemente</option>
-              <option value="-stock">Maior estoque</option>
-              <option value="stock">Menor estoque</option>
-              <option value="-price">Maior preço</option>
-              <option value="price">Menor preço</option>
+              {ORDERING_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
             </select>
           </div>
         </div>
 
-        {loading ? <p>Carregando itens...</p> : null}
+        {loading && !items.length ? <p>Carregando itens...</p> : null}
         {!loading && !items.length ? <p>Nenhum item encontrado.</p> : null}
 
-        {!loading && items.length ? (
+        {items.length ? (
           <div className="table-wrap">
             <table>
               <thead>
@@ -1825,7 +1707,7 @@ function App() {
                     <td>{corrigirOrtografiaUI(item.brand)}</td>
                     <td>{corrigirOrtografiaUI(item.variant_label || "Padrão")}</td>
                     <td>{corrigirOrtografiaUI(item.package_size)}</td>
-                    <td>R$ {Number(item.price).toFixed(2)}</td>
+                    <td>{formatCurrency(item.price)}</td>
                     <td>
                       <span className={item.stock < 5 ? "tag warning" : "tag good"}>
                         {item.stock}
@@ -1904,10 +1786,21 @@ function App() {
       </section>
 
       <section className="panel">
-        <h2>Movimentacoes recentes</h2>
+        <div className="toolbar">
+          <h2>Movimentacoes recentes</h2>
+          <div className="filters">
+            <select value={movimentosLimit} onChange={(event) => setMovimentosLimit(event.target.value)}>
+              {MOVIMENTO_LIMIT_OPTIONS.map((limit) => (
+                <option key={limit} value={limit}>
+                  {`Últimas ${limit}`}
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
         {!movimentos.length ? <p>Sem movimentações recentes.</p> : null}
         {movimentos.length ? (
-          <div className="table-wrap">
+          <div className="table-wrap movements-wrap">
             <table>
               <thead>
                 <tr>
@@ -1920,9 +1813,9 @@ function App() {
                 </tr>
               </thead>
               <tbody>
-                {movimentos.slice(0, 10).map((mov) => (
+                {movimentos.map((mov) => (
                   <tr key={mov.id}>
-                    <td>{new Date(mov.created_at).toLocaleString("pt-BR")}</td>
+                    <td>{formatDateTimePtBr(mov.created_at)}</td>
                     <td>{corrigirOrtografiaUI(mov.item_name)}</td>
                     <td>{movimentoLabel[mov.movement_type] || mov.movement_type}</td>
                     <td>{corrigirOrtografiaUI(mov.variant_label || "Padrão")}</td>
@@ -1938,7 +1831,8 @@ function App() {
 
       {error ? <p className="feedback error">{error}</p> : null}
       {toast ? <p className="feedback success">{toast}</p> : null}
-    </main>
+      </main>
+    </>
   );
 }
 

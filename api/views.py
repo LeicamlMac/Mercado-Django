@@ -2,8 +2,9 @@
 import re
 
 from django.db import transaction
-from django.db.models import F, Sum
+from django.db.models import Count, F, Prefetch, Q, Sum
 from django.db.models.functions import Lower
+from rest_framework.pagination import PageNumberPagination
 from rest_framework import filters, status, viewsets
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
@@ -105,6 +106,23 @@ BEER_BRANDS = {
     "stella artois",
 }
 
+ACTIVE_PACKAGES_PREFETCH = Prefetch(
+    "packages",
+    queryset=ProductPackage.objects.filter(is_active=True).only(
+        "id",
+        "variant_id",
+        "name",
+        "units_per_package",
+        "is_default",
+        "is_active",
+    ),
+)
+
+DEPARTMENT_NAMES_PREFETCH = Prefetch(
+    "product__departments",
+    queryset=Department.objects.only("id", "name"),
+)
+
 
 def _signed_units(movement_type, units):
     if movement_type in {StockMovement.MOVEMENT_RECEIVE, StockMovement.MOVEMENT_RETURN}:
@@ -178,7 +196,7 @@ def _search_stock_catalog(query: str, department: str = "", limit: int = 400):
 
     queryset = (
         ProductVariant.objects.select_related("product", "product__category")
-        .prefetch_related("product__departments", "packages")
+        .prefetch_related(DEPARTMENT_NAMES_PREFETCH, ACTIVE_PACKAGES_PREFETCH)
         .filter(is_active=True)
     )
     if department:
@@ -191,7 +209,8 @@ def _search_stock_catalog(query: str, department: str = "", limit: int = 400):
     def _brand_matches(brand_value: str, allowed_terms: set[str]) -> bool:
         return any(term in brand_value for term in allowed_terms)
 
-    for variant in queryset.order_by("-updated_at")[: max(limit * 8, 500)]:
+    scan_limit = max(limit * 4, 300)
+    for variant in queryset.order_by("-updated_at")[:scan_limit]:
         normalized_product = _normalize_for_search(variant.product.name)
         normalized_brand = _normalize_for_search(variant.product.brand)
         normalized_category = _normalize_for_search(variant.product.category.name)
@@ -461,8 +480,17 @@ class ProductVariantViewSet(viewsets.ModelViewSet):
         "variant_label",
         "package_size",
     ]
-    ordering_fields = ["price", "stock", "updated_at", "created_at"]
-    ordering = ["-updated_at"]
+    ordering_fields = [
+        "product__name",
+        "product__brand",
+        "variant_label",
+        "package_size",
+        "price",
+        "stock",
+        "updated_at",
+        "created_at",
+    ]
+    ordering = ["product__name", "product__brand", "variant_label", "package_size"]
 
     def get_queryset(self):
         queryset = super().get_queryset()
@@ -482,10 +510,86 @@ class ProductVariantViewSet(viewsets.ModelViewSet):
         return queryset.distinct()
 
 
+class ProductVariantChoicesView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        query = (request.query_params.get("q") or "").strip()
+        is_active = (request.query_params.get("is_active") or "").strip().lower()
+        raw_limit = request.query_params.get("limit") or "300"
+        try:
+            limit = max(50, min(int(raw_limit), 1000))
+        except ValueError:
+            limit = 300
+
+        queryset = (
+            ProductVariant.objects.select_related("product")
+            .prefetch_related(ACTIVE_PACKAGES_PREFETCH)
+            .all()
+        )
+        if is_active in {"true", "false"}:
+            active_flag = is_active == "true"
+            queryset = queryset.filter(is_active=active_flag, product__is_active=active_flag)
+        if query:
+            queryset = queryset.filter(
+                Q(product__name__icontains=query)
+                | Q(product__brand__icontains=query)
+                | Q(variant_label__icontains=query)
+                | Q(package_size__icontains=query)
+            )
+
+        queryset = queryset.order_by(
+            Lower("product__name"),
+            Lower("variant_label"),
+            Lower("package_size"),
+            Lower("product__brand"),
+        )
+
+        items = [
+            {
+                "id": variant.id,
+                "label": f"{variant.product.name} {variant.variant_label or 'Padrão'} {variant.package_size} ({variant.product.brand})",
+                "is_active": variant.is_active and variant.product.is_active,
+                "stock": variant.stock,
+                "updated_at": variant.updated_at,
+                "packages": [
+                    package.name
+                    for package in variant.packages.all()
+                    if package.is_active
+                ],
+            }
+            for variant in queryset[:limit]
+        ]
+        return Response({"items": items})
+
+
+class MovementPagination(PageNumberPagination):
+    page_size = 12
+    page_size_query_param = "page_size"
+    max_page_size = 200
+
+
 class StockMovementViewSet(viewsets.ReadOnlyModelViewSet):
     permission_classes = [IsAuthenticated]
     serializer_class = StockMovementSerializer
-    queryset = StockMovement.objects.select_related("variant", "package", "created_by").all()
+    pagination_class = MovementPagination
+    queryset = (
+        StockMovement.objects.select_related("variant", "variant__product", "package")
+        .only(
+            "id",
+            "variant_id",
+            "variant__variant_label",
+            "variant__product__name",
+            "movement_type",
+            "package_id",
+            "package__name",
+            "package_quantity",
+            "units_delta",
+            "notes",
+            "created_at",
+        )
+        .all()
+    )
     filter_backends = [filters.OrderingFilter]
     ordering_fields = ["created_at", "units_delta"]
     ordering = ["-created_at", "-id"]
@@ -505,13 +609,18 @@ class ProductMetricsView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
-        variants = ProductVariant.objects.all()
+        data = ProductVariant.objects.aggregate(
+            total_variants=Count("id"),
+            active_variants=Count("id", filter=Q(is_active=True)),
+            total_stock=Sum("stock"),
+            low_stock_count=Count("id", filter=Q(stock__lt=5)),
+        )
         return Response(
             {
-                "total_variants": variants.count(),
-                "active_variants": variants.filter(is_active=True).count(),
-                "total_stock": variants.aggregate(total=Sum("stock"))["total"] or 0,
-                "low_stock_count": variants.filter(stock__lt=5).count(),
+                "total_variants": data.get("total_variants") or 0,
+                "active_variants": data.get("active_variants") or 0,
+                "total_stock": data.get("total_stock") or 0,
+                "low_stock_count": data.get("low_stock_count") or 0,
             }
         )
 

@@ -12,9 +12,9 @@ import webbrowser
 
 from django.core.management.base import BaseCommand, CommandError
 from django.db import OperationalError, connections, transaction
-from django.db.models import F, Sum
+from django.db.models import F, Prefetch, Sum
 
-from api.models import ProductVariant, StockMovement
+from api.models import Department, ProductPackage, ProductVariant, StockMovement
 
 
 def percentile(values, p):
@@ -127,7 +127,23 @@ class Command(BaseCommand):
         def op_read_catalog():
             list(
                 ProductVariant.objects.select_related("product", "product__category")
-                .prefetch_related("packages", "product__departments")
+                .prefetch_related(
+                    Prefetch(
+                        "packages",
+                        queryset=ProductPackage.objects.filter(is_active=True).only(
+                            "id",
+                            "variant_id",
+                            "name",
+                            "units_per_package",
+                            "is_default",
+                            "is_active",
+                        ),
+                    ),
+                    Prefetch(
+                        "product__departments",
+                        queryset=Department.objects.only("id", "name"),
+                    ),
+                )
                 .filter(is_active=True)
                 .order_by("-updated_at")[:25]
             )
@@ -258,6 +274,7 @@ class Command(BaseCommand):
         if serve:
             self._serve_report(html_path, port=port, open_browser=open_browser)
 
+
     def _build_html(self, report):
         report_json = json.dumps(report, ensure_ascii=False)
         return f"""<!doctype html>
@@ -265,85 +282,344 @@ class Command(BaseCommand):
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Stress Report - Mercado</title>
+  <title>Relatorio de Stress - Mercado</title>
   <style>
-    body {{ font-family: Segoe UI, Arial, sans-serif; margin: 24px; background:#f6f8fc; color:#0f1b35; }}
-    .grid {{ display:grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap:12px; margin:12px 0 20px; }}
-    .card {{ background:#fff; border:1px solid #dfe6f5; border-radius:10px; padding:12px; }}
-    .label {{ font-size:12px; color:#5470a6; }}
-    .value {{ font-size:24px; font-weight:700; margin-top:4px; }}
-    table {{ width:100%; border-collapse: collapse; background:#fff; border:1px solid #dfe6f5; border-radius:10px; overflow:hidden; }}
-    th, td {{ border-bottom:1px solid #eef2fb; padding:10px; text-align:left; font-size:14px; }}
-    th {{ background:#f1f5ff; }}
-    .bar-wrap {{ background:#eef3ff; height:10px; border-radius:999px; overflow:hidden; }}
-    .bar {{ height:10px; background:#2f68ff; }}
-    .error {{ color:#9c1f1f; font-family: Consolas, monospace; font-size:12px; }}
+    :root {{
+      --bg: #f4f7ff;
+      --panel: #ffffff;
+      --line: #dde6f7;
+      --text: #0f2344;
+      --muted: #5a6f91;
+      --blue: #2f68ff;
+      --blue-soft: #eaf1ff;
+      --green: #1f9d63;
+      --yellow: #a97400;
+      --red: #b43636;
+      --radius: 14px;
+    }}
+    * {{ box-sizing: border-box; }}
+    body {{
+      margin: 0;
+      background: radial-gradient(circle at top right, #edf3ff, var(--bg) 45%);
+      color: var(--text);
+      font-family: "Segoe UI", Tahoma, Arial, sans-serif;
+      line-height: 1.4;
+    }}
+    .container {{
+      max-width: 1480px;
+      margin: 0 auto;
+      padding: 22px;
+    }}
+    .panel {{
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      padding: 16px;
+      margin-bottom: 14px;
+      box-shadow: 0 10px 30px rgba(40, 70, 140, 0.08);
+    }}
+    h1 {{ margin: 0 0 8px; font-size: 44px; letter-spacing: -0.02em; }}
+    h2 {{ margin: 0 0 10px; font-size: 30px; letter-spacing: -0.01em; }}
+    h3 {{ margin: 0 0 8px; font-size: 20px; }}
+    .muted {{ color: var(--muted); }}
+    .kpis {{
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      gap: 10px;
+    }}
+    .kpi {{
+      border: 1px solid var(--line);
+      background: linear-gradient(180deg, #ffffff, #f7faff);
+      border-radius: 12px;
+      padding: 12px;
+    }}
+    .kpi .label {{ font-size: 12px; color: var(--muted); }}
+    .kpi .value {{ margin-top: 6px; font-size: 34px; font-weight: 800; }}
+    .kpi .sub {{ margin-top: 4px; font-size: 12px; color: var(--muted); }}
+    .layout-2 {{
+      display: grid;
+      grid-template-columns: 1.2fr 1fr;
+      gap: 12px;
+    }}
+    .bars {{ display: grid; gap: 10px; }}
+    .bar-row {{
+      display: grid;
+      grid-template-columns: 120px 1fr 80px;
+      align-items: center;
+      gap: 10px;
+      font-size: 13px;
+    }}
+    .bar-track {{
+      height: 12px;
+      border-radius: 999px;
+      background: var(--blue-soft);
+      overflow: hidden;
+    }}
+    .bar-fill {{
+      height: 100%;
+      background: linear-gradient(90deg, #4b7cff, #2f68ff);
+    }}
+    .chip {{
+      display: inline-flex;
+      align-items: center;
+      border-radius: 999px;
+      padding: 3px 10px;
+      font-size: 12px;
+      font-weight: 700;
+      margin-right: 6px;
+      margin-bottom: 6px;
+      border: 1px solid transparent;
+    }}
+    .chip.ok {{ color: var(--green); background: #e8f8f1; border-color: #bfe9d7; }}
+    .chip.warn {{ color: var(--yellow); background: #fff5df; border-color: #f3deab; }}
+    .chip.bad {{ color: var(--red); background: #ffebeb; border-color: #f3c2c2; }}
+    .insights {{ margin: 8px 0 0; padding-left: 18px; }}
+    .insights li {{ margin: 5px 0; }}
+    .table-wrap {{
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      overflow: auto;
+      max-height: 560px;
+      background: #fff;
+    }}
+    table {{ width: 100%; border-collapse: collapse; }}
+    th, td {{
+      border-bottom: 1px solid #e8effc;
+      padding: 9px 10px;
+      text-align: left;
+      white-space: nowrap;
+      font-size: 13px;
+    }}
+    th {{
+      position: sticky;
+      top: 0;
+      background: #f3f7ff;
+      z-index: 1;
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.03em;
+      color: #4d6ca1;
+    }}
+    .mono {{ font-family: Consolas, Menlo, monospace; font-size: 12px; }}
+    @media (max-width: 1020px) {{
+      .layout-2 {{ grid-template-columns: 1fr; }}
+      h1 {{ font-size: 34px; }}
+      h2 {{ font-size: 24px; }}
+    }}
   </style>
 </head>
 <body>
-  <h1>Relatório de Stress do Banco</h1>
-  <p>Execução: <strong>{report['timestamp']}</strong></p>
-  <div id="summary" class="grid"></div>
-  <h2>Operações</h2>
-  <table id="ops-table">
-    <thead>
-      <tr>
-        <th>Operação</th>
-        <th>Count</th>
-        <th>Média (ms)</th>
-        <th>P95 (ms)</th>
-        <th>Máx (ms)</th>
-        <th>Visual</th>
-      </tr>
-    </thead>
-    <tbody></tbody>
-  </table>
-  <h2>Erros (amostra)</h2>
-  <div id="errors"></div>
+  <div class="container">
+    <section class="panel">
+      <h1>Relatorio de Stress do Banco</h1>
+      <p class="muted">
+        Execucao: <strong>{report['timestamp']}</strong> |
+        Configuracao: <strong>{report['settings']['threads']} threads</strong> x
+        <strong>{report['settings']['ops_per_thread']} ops</strong> (read_ratio=<strong>{report['settings']['read_ratio']}</strong>)
+      </p>
+      <div id="summary" class="kpis"></div>
+    </section>
+
+    <section class="panel layout-2">
+      <div>
+        <h2>Diagnostico</h2>
+        <div id="health-chips"></div>
+        <ul id="insights" class="insights"></ul>
+      </div>
+      <div>
+        <h2>Distribuicao de latencia</h2>
+        <div id="latency-bars" class="bars"></div>
+      </div>
+    </section>
+
+    <section class="panel">
+      <h2>Operacoes (detalhado)</h2>
+      <div class="table-wrap">
+        <table id="ops-table">
+          <thead>
+            <tr>
+              <th>Operacao</th>
+              <th>Count</th>
+              <th>% do total</th>
+              <th>Media (ms)</th>
+              <th>P95 (ms)</th>
+              <th>Max (ms)</th>
+              <th>Risco P95</th>
+              <th>Peso p/ gargalo</th>
+              <th>Visual P95</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="panel">
+      <h2>Erros (amostra)</h2>
+      <div id="errors"></div>
+    </section>
+  </div>
+
   <script>
     const report = {report_json};
+    const totalTarget = report.settings.target_operations || 0;
+    const totalSuccess = report.results.success_count || 0;
+    const totalErrors = report.results.error_count || 0;
+    const latency = report.results.latency_ms || {{}};
+
     const summary = [
-      ["Threads", report.settings.threads],
-      ["Ops alvo", report.settings.target_operations],
-      ["Sucesso", report.results.success_count],
-      ["Erros", report.results.error_count],
-      ["Throughput (ops/s)", report.results.throughput_ops_sec],
-      ["P95 (ms)", report.results.latency_ms.p95],
-      ["P99 (ms)", report.results.latency_ms.p99],
-      ["Duração (s)", report.results.total_duration_seconds],
+      ["Threads", report.settings.threads, "Concorrencia do teste"],
+      ["Ops alvo", totalTarget, "threads x ops/thread"],
+      ["Sucesso", totalSuccess, "Operacoes concluidas"],
+      ["Erros", totalErrors, "Falhas registradas"],
+      ["Taxa de erro (%)", report.results.error_rate_pct, "Quanto menor melhor"],
+      ["Throughput (ops/s)", report.results.throughput_ops_sec, "Capacidade efetiva"],
+      ["Lat media (ms)", latency.avg, "Tempo medio"],
+      ["P95 (ms)", latency.p95, "95% das ops <= este tempo"],
+      ["P99 (ms)", latency.p99, "99% das ops <= este tempo"],
+      ["Max (ms)", latency.max, "Pior caso observado"],
+      ["Duracao (s)", report.results.total_duration_seconds, "Tempo total do teste"],
+      ["Tentativas", report.settings.retries, "Retry para lock transiente"],
     ];
     const summaryNode = document.getElementById("summary");
-    summary.forEach(([label, value]) => {{
+    summary.forEach(([label, value, sub]) => {{
       const card = document.createElement("div");
-      card.className = "card";
-      card.innerHTML = `<div class="label">${{label}}</div><div class="value">${{value}}</div>`;
+      card.className = "kpi";
+      card.innerHTML = `
+        <div class="label">${{label}}</div>
+        <div class="value">${{value}}</div>
+        <div class="sub">${{sub}}</div>
+      `;
       summaryNode.appendChild(card);
     }});
 
-    const rows = Object.entries(report.per_operation);
-    const maxP95 = Math.max(...rows.map(([, v]) => v.p95_ms), 1);
+    const opRows = Object.entries(report.per_operation || {{}});
+    const maxP95 = Math.max(...opRows.map(([, v]) => Number(v.p95_ms || 0)), 1);
     const tbody = document.querySelector("#ops-table tbody");
-    rows.forEach(([name, data]) => {{
-      const width = Math.max(2, Math.round((data.p95_ms / maxP95) * 100));
+    const health = document.getElementById("health-chips");
+    const insights = document.getElementById("insights");
+
+    const p95Risk = (value) => {{
+      if (value <= 30) return "ok";
+      if (value <= 80) return "warn";
+      return "bad";
+    }};
+
+    const riskLabel = (risk) => {{
+      if (risk === "ok") return "Baixo";
+      if (risk === "warn") return "Moderado";
+      return "Alto";
+    }};
+
+    const opEnriched = opRows.map(([name, data]) => {{
+      const count = Number(data.count || 0);
+      const share = totalSuccess ? (count / totalSuccess) * 100 : 0;
+      const p95 = Number(data.p95_ms || 0);
+      const avg = Number(data.avg_ms || 0);
+      const max = Number(data.max_ms || 0);
+      const bottleneckWeight = p95 * count;
+      return {{ name, count, share, p95, avg, max, bottleneckWeight, risk: p95Risk(p95) }};
+    }}).sort((a, b) => b.bottleneckWeight - a.bottleneckWeight);
+
+    opEnriched.forEach((row) => {{
+      const width = Math.max(2, Math.round((row.p95 / maxP95) * 100));
       const tr = document.createElement("tr");
       tr.innerHTML = `
-        <td>${{name}}</td>
-        <td>${{data.count}}</td>
-        <td>${{data.avg_ms}}</td>
-        <td>${{data.p95_ms}}</td>
-        <td>${{data.max_ms}}</td>
-        <td><div class="bar-wrap"><div class="bar" style="width:${{width}}%"></div></div></td>
+        <td><strong>${{row.name}}</strong></td>
+        <td>${{row.count}}</td>
+        <td>${{row.share.toFixed(2)}}%</td>
+        <td>${{row.avg.toFixed(2)}}</td>
+        <td>${{row.p95.toFixed(2)}}</td>
+        <td>${{row.max.toFixed(2)}}</td>
+        <td>${{riskLabel(row.risk)}}</td>
+        <td>${{Math.round(row.bottleneckWeight).toLocaleString("pt-BR")}}</td>
+        <td><div class="bar-track"><div class="bar-fill" style="width:${{width}}%"></div></div></td>
       `;
       tbody.appendChild(tr);
     }});
 
+    const sumPerOp = opEnriched.reduce((acc, item) => acc + item.count, 0);
+    const consistencyOk = sumPerOp === totalSuccess;
+    const errorRate = Number(report.results.error_rate_pct || 0);
+    const topBottleneck = opEnriched[0];
+
+    const chips = [
+      {{
+        label: consistencyOk ? "Consistencia ok" : "Consistencia divergente",
+        cls: consistencyOk ? "ok" : "bad",
+      }},
+      {{
+        label: errorRate === 0 ? "Sem erros" : `Erros: ${{errorRate}}%`,
+        cls: errorRate === 0 ? "ok" : (errorRate < 1 ? "warn" : "bad"),
+      }},
+      {{
+        label: latency.p95 <= 60 ? `P95 controlado (${{latency.p95}}ms)` : `P95 alto (${{latency.p95}}ms)`,
+        cls: latency.p95 <= 60 ? "ok" : (latency.p95 <= 90 ? "warn" : "bad"),
+      }},
+      {{
+        label: topBottleneck ? `Principal gargalo: ${{topBottleneck.name}}` : "Sem dados de operacao",
+        cls: topBottleneck ? (topBottleneck.risk === "bad" ? "bad" : "warn") : "warn",
+      }},
+    ];
+    chips.forEach((item) => {{
+      const chip = document.createElement("span");
+      chip.className = `chip ${{item.cls}}`;
+      chip.textContent = item.label;
+      health.appendChild(chip);
+    }});
+
+    const insightLines = [];
+    insightLines.push(`Soma dos counts por operacao: ${{sumPerOp}} (sucesso total: ${{totalSuccess}}).`);
+    insightLines.push(`Read ratio configurado: ${{(Number(report.settings.read_ratio || 0) * 100).toFixed(0)}}% (escrita: ${{(100 - (Number(report.settings.read_ratio || 0) * 100)).toFixed(0)}}%).`);
+    if (topBottleneck) {{
+      insightLines.push(`Operacao com maior peso de gargalo (p95 x volume): ${{topBottleneck.name}}.`);
+    }}
+    if (latency.p99 && latency.p95) {{
+      const tailFactor = latency.p95 ? (latency.p99 / latency.p95) : 0;
+      insightLines.push(`Fator de cauda (p99/p95): ${{tailFactor.toFixed(2)}} (quanto mais perto de 1, mais estavel).`);
+    }}
+    if (errorRate > 0) {{
+      insightLines.push(`Ha erros na execucao. Revise a secao de erros para identificar lock/timeout.`);
+    }} else {{
+      insightLines.push("Nao houve erros de execucao na amostra.");
+    }}
+    insightLines.forEach((line) => {{
+      const li = document.createElement("li");
+      li.textContent = line;
+      insights.appendChild(li);
+    }});
+
+    const latencyBars = document.getElementById("latency-bars");
+    const latencySeries = [
+      ["Media", Number(latency.avg || 0)],
+      ["P50", Number(latency.p50 || 0)],
+      ["P95", Number(latency.p95 || 0)],
+      ["P99", Number(latency.p99 || 0)],
+      ["Max", Number(latency.max || 0)],
+    ];
+    const latencyMax = Math.max(...latencySeries.map(([, value]) => value), 1);
+    latencySeries.forEach(([label, value]) => {{
+      const width = Math.max(2, Math.round((value / latencyMax) * 100));
+      const row = document.createElement("div");
+      row.className = "bar-row";
+      row.innerHTML = `
+        <strong>${{label}}</strong>
+        <div class="bar-track"><div class="bar-fill" style="width:${{width}}%"></div></div>
+        <span class="mono">${{value.toFixed(2)}} ms</span>
+      `;
+      latencyBars.appendChild(row);
+    }});
+
     const errorsDiv = document.getElementById("errors");
-    if (!report.errors_sample.length) {{
-      errorsDiv.textContent = "Sem erros na amostra.";
+    if (!report.errors_sample || !report.errors_sample.length) {{
+      const p = document.createElement("p");
+      p.textContent = "Sem erros na amostra.";
+      errorsDiv.appendChild(p);
     }} else {{
       report.errors_sample.forEach((err) => {{
         const p = document.createElement("p");
-        p.className = "error";
+        p.className = "mono";
+        p.style.color = "#9c1f1f";
         p.textContent = err;
         errorsDiv.appendChild(p);
       }});
@@ -354,6 +630,7 @@ class Command(BaseCommand):
 """
 
     def _serve_report(self, html_path, port=8787, open_browser=False):
+
         report_dir = html_path.parent
         relative_name = html_path.name
         handler = partial(SimpleHTTPRequestHandler, directory=str(report_dir))

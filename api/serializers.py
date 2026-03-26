@@ -90,7 +90,7 @@ class ProductVariantSerializer(serializers.ModelSerializer):
     packages = ProductPackageSerializer(many=True, read_only=True)
 
     def get_departments(self, obj):
-        return list(obj.product.departments.values_list("name", flat=True))
+        return [department.name for department in obj.product.departments.all()]
 
     class Meta:
         model = ProductVariant

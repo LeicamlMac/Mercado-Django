@@ -103,6 +103,8 @@ class ProductVariant(models.Model):
             models.Index(fields=["stock"], name="variant_stock_idx"),
             models.Index(fields=["updated_at"], name="variant_updated_at_idx"),
             models.Index(fields=["product", "is_active"], name="variant_product_active_idx"),
+            models.Index(fields=["is_active", "updated_at"], name="variant_active_updated_idx"),
+            models.Index(fields=["is_active", "stock"], name="variant_active_stock_idx"),
         ]
 
     def __str__(self):
@@ -190,6 +192,8 @@ class StockMovement(models.Model):
             models.Index(fields=["created_at"], name="movement_created_at_idx"),
             models.Index(fields=["variant", "created_at"], name="movement_variant_created_idx"),
             models.Index(fields=["movement_type", "created_at"], name="movement_type_created_idx"),
+            models.Index(fields=["created_at", "id"], name="movement_created_id_idx"),
+            models.Index(fields=["variant", "movement_type", "created_at"], name="movement_var_type_created_idx"),
         ]
 
     def __str__(self):
