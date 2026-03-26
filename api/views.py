@@ -201,6 +201,17 @@ def _search_stock_catalog(query: str, department: str = "", limit: int = 400):
     )
     if department:
         queryset = queryset.filter(product__departments__name__iexact=department.strip())
+    if tokens:
+        token_filter = Q()
+        for token in tokens:
+            token_filter &= (
+                Q(product__name__icontains=token)
+                | Q(product__brand__icontains=token)
+                | Q(product__category__name__icontains=token)
+                | Q(variant_label__icontains=token)
+                | Q(package_size__icontains=token)
+            )
+        queryset = queryset.filter(token_filter)
 
     queryset = queryset.distinct()
 

@@ -489,6 +489,10 @@ tr:hover td {
   margin-bottom: 8px;
 }
 
+.catalog-search-row button {
+  min-width: 118px;
+}
+
 .catalog-search-row input {
   flex: 1;
 }
@@ -537,6 +541,11 @@ tr:hover td {
 .muted {
   color: var(--muted);
   font-size: 13px;
+}
+
+.operation-helper {
+  display: block;
+  min-height: 18px;
 }
 
 .theme-toggle {

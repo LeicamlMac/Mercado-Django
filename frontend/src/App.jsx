@@ -680,14 +680,6 @@ function App() {
   }, [loadMetrics, loadPresets, loadMovimentos, loadOperacaoItems, loadSetores]);
 
   useEffect(() => {
-    const term = (operacaoSearch || "").trim();
-    const timer = setTimeout(() => {
-      loadOperacaoItems(term, false);
-    }, 250);
-    return () => clearTimeout(timer);
-  }, [operacaoSearch, loadOperacaoItems]);
-
-  useEffect(() => {
     if (!operacaoSearch.trim()) return;
     if (operacaoForm.variant_id) return;
     if (!operacaoItems.length) return;
@@ -1524,7 +1516,7 @@ function App() {
                   onClick={handleOperacaoSearchSubmit}
                   disabled={operacaoSearching}
                 >
-                  {operacaoSearching ? "Buscando..." : "Buscar"}
+                  Buscar
                 </button>
               </div>
             </label>
@@ -1543,10 +1535,13 @@ function App() {
                   </option>
                 ))}
               </select>
-              {operacaoSearching ? <span className="muted">Buscando itens...</span> : null}
-              {!operacaoSearching && operacaoSearch.trim() && !operacaoItems.length ? (
-                <span className="muted">Nenhum item encontrado para essa busca.</span>
-              ) : null}
+              <span className="muted operation-helper">
+                {operacaoSearching
+                  ? "Buscando itens..."
+                  : operacaoSearch.trim() && !operacaoItems.length
+                    ? "Nenhum item encontrado para essa busca."
+                    : " "}
+              </span>
             </label>
             <label>
               Tipo de movimentação
