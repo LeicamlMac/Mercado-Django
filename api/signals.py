@@ -2,9 +2,9 @@ from django.db.backends.signals import connection_created
 from django.db.models.signals import post_migrate
 from django.dispatch import receiver
 
+from .constants import ALLOWED_DEPARTMENTS
 from .models import Category, Department
 from .services.taxonomy import ALLOWED_CATEGORIES
-from .serializers import ALLOWED_DEPARTMENTS
 
 
 @receiver(connection_created)

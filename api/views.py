@@ -1,15 +1,16 @@
-﻿from django.contrib.auth.models import Group
-import re
+﻿import re
+from django.contrib.auth.models import Group
 
 from django.db import transaction
 from django.db.models import Count, F, Prefetch, Q, Sum
 from django.db.models.functions import Lower
-from rest_framework.pagination import PageNumberPagination
 from rest_framework import filters, status, viewsets
+from rest_framework.pagination import PageNumberPagination
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from .constants import ALLOWED_DEPARTMENTS, DEPARTMENT_ORDER
 from .models import (
     Category,
     Department,
@@ -20,7 +21,6 @@ from .models import (
 )
 from .permissions import CatalogWritePermission
 from .serializers import (
-    ALLOWED_DEPARTMENTS,
     AdjustStockSerializer,
     CategorySerializer,
     DepartmentSerializer,
@@ -43,19 +43,6 @@ from .services.taxonomy import (
     normalize_text as normalize_catalog_text,
     resolve_category_name,
 )
-
-DEPARTMENT_ORDER = [
-    "Mercearia",
-    "Laticinios",
-    "Bebidas",
-    "Carnes",
-    "Doces",
-    "Higiene",
-    "Higiene Pessoal",
-    "Limpeza",
-    "Padaria",
-    "Congelados",
-]
 
 REFRIGERANTE_BRANDS = {
     "coca-cola",
@@ -1056,4 +1043,6 @@ class CurrentSessionView(APIView):
                 ),
             }
         )
+
+
 

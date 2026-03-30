@@ -1,81 +1,37 @@
 ﻿import { useCallback, useEffect, useMemo, useState } from "react";
 import "./App.css";
-
-const STORAGE_KEY = "mercado_auth_tokens";
-const THEME_STORAGE_KEY = "mercado_theme";
-const DEFAULT_ORDERING = "product__name,product__brand,variant_label,package_size";
-
-const ORDERING_OPTIONS = [
-  { value: "product__name,product__brand,variant_label,package_size", label: "Produto (A-Z)" },
-  { value: "-product__name,-product__brand,-variant_label,-package_size", label: "Produto (Z-A)" },
-  { value: "-updated_at", label: "Atualizados recentemente" },
-  { value: "-price", label: "Maior preço" },
-  { value: "price", label: "Menor preço" },
-];
-
-const STATUS_FILTER_OPTIONS = [
-  { value: "all", label: "Todos" },
-  { value: "true", label: "Ativos" },
-  { value: "false", label: "Inativos" },
-];
-
-const MOVIMENTO_LIMIT_OPTIONS = ["12", "24", "50"];
-
-const MOVIMENTO_ENDPOINTS = {
-  RECEIVE: "/api/items/receive/",
-  SELL: "/api/items/sell/",
-  ADJUST: "/api/items/adjust/",
-};
-
-const emptyQuickForm = {
-  department_names: [],
-  category_name: "",
-  product_name: "",
-  brand: "",
-  variant_label: "",
-  package_size: "",
-  package_name: "UNIDADE",
-  package_units: "1",
-  price: "",
-  quantity: "1",
-};
-
-const emptyOperacaoForm = {
-  variant_id: "",
-  tipo: "RECEIVE",
-  package_name: "UNIDADE",
-  package_quantity: "1",
-  quantity_units: "1",
-  notes: "",
-};
-
-const movimentoLabel = {
-  RECEIVE: "Recebimento",
-  SELL: "Venda",
-  ADJUST: "Ajuste",
-  LOSS: "Perda",
-  RETURN: "Devolução",
-};
-
-const SETORES_PADRAO = [
-  "Mercearia",
-  "Laticinios",
-  "Bebidas",
-  "Carnes",
-  "Doces",
-  "Higiene",
-  "Higiene Pessoal",
-  "Limpeza",
-  "Padaria",
-  "Congelados",
-];
-
-const EMPTY_CATALOG_META = {
-  bluesoft_configurada: false,
-  resultados_bluesoft: 0,
-  resultados_locais: 0,
-  fonte_item: "",
-};
+import {
+  DEFAULT_ORDERING,
+  DEFAULT_VARIANT_LABEL,
+  EMPTY_CATALOG_META,
+  EMPTY_OPERACAO_FORM as emptyOperacaoForm,
+  EMPTY_QUICK_FORM as emptyQuickForm,
+  FEIJAO_PRODUCT_TOKEN,
+  FEIJAO_VARIANT_PRETO,
+  MOVIMENTO_ENDPOINTS,
+  MOVIMENTO_LABEL as movimentoLabel,
+  MOVIMENTO_LIMIT_OPTIONS,
+  ORDERING_OPTIONS,
+  SETORES_PADRAO,
+  STATUS_FILTER_OPTIONS,
+  THEME_STORAGE_KEY,
+  corrigirOrtografiaUI,
+  formatCurrency,
+  formatDateTimePtBr,
+  formatarTamanhoUI,
+  limparTipoArroz,
+  loadCatalogUsageHistory,
+  loadStoredTheme,
+  loadStoredTokens,
+  normalizarTexto,
+  regraCombinaProduto,
+  regraPossuiProduto,
+  requestJson,
+  saveCatalogUsageHistory,
+  saveStoredTokens,
+  tamanhoOrdenacao,
+  uniqueNonEmpty,
+} from "./catalogUtils";
 
 function ThemeToggleButton({ theme, onToggle }) {
   return (
@@ -84,143 +40,6 @@ function ThemeToggleButton({ theme, onToggle }) {
     </button>
   );
 }
-
-function normalizarTexto(value) {
-  return (value || "")
-    .toLowerCase()
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .trim();
-}
-
-function corrigirOrtografiaUI(value) {
-  let text = String(value || "").trim();
-  if (!text) return "";
-
-  const substitutions = [
-    [/Laticinios/gi, "Laticínios"],
-    [/Higienico/gi, "Higiênico"],
-    [/Acucar/gi, "Açúcar"],
-    [/Cafe/gi, "Café"],
-    [/Limao/gi, "Limão"],
-    [/Maracuja/gi, "Maracujá"],
-    [/Pao/gi, "Pão"],
-    [/Sabao em Po/gi, "Sabão em Pó"],
-    [/Sabao/gi, "Sabão"],
-    [/Agua Sanitaria/gi, "Água Sanitária"],
-    [/Agua/gi, "Água"],
-    [/Linguica/gi, "Linguiça"],
-    [/Anticaries/gi, "Anticáries"],
-    [/Sem Acucar/gi, "Sem Açúcar"],
-    [/Liquido/gi, "Líquido"],
-    [/Hidratacao/gi, "Hidratação"],
-    [/Reconstrucao/gi, "Reconstrução"],
-    [/Maca\\b/gi, "Maçã"],
-    [/Elegê/gi, "Elegê"],
-    [/Feijao-de-corda/gi, "Feijão-de-corda"],
-    [/Feijao/gi, "Feijão"],
-    [/Parboilizado/gi, "Parboilizado"],
-  ];
-  for (const [pattern, replacement] of substitutions) {
-    text = text.replace(pattern, replacement);
-  }
-  return text;
-}
-
-function tamanhoOrdenacao(value) {
-  const text = normalizarTexto(value);
-  const match = text.match(/(\d+(?:\.\d+)?)\s*(kg|g|l|ml|un)$/i);
-  if (!match) return [9, text];
-  const number = Number(match[1]);
-  const unit = match[2];
-  if (unit === "kg") return [0, number * 1000];
-  if (unit === "g") return [0, number];
-  if (unit === "l") return [1, number * 1000];
-  if (unit === "ml") return [1, number];
-  if (unit === "un") return [2, number];
-  return [9, text];
-}
-
-function limparTipoArroz(productName, variantLabel) {
-  const produto = normalizarTexto(productName);
-  const rotulo = (variantLabel || "").trim();
-  if (!rotulo) return "";
-  if (!produto.includes("arroz")) return rotulo;
-  return rotulo.replace(/\btipo\s*\d+\b/gi, "").replace(/\s{2,}/g, " ").trim();
-}
-
-function regraPossuiProduto(regra) {
-  return (regra?.products || []).length > 0;
-}
-
-function regraCombinaProduto(regra, nomeProdutoNormalizado) {
-  if (!nomeProdutoNormalizado) return false;
-  return (regra?.products || []).some((item) => {
-    const produtoRegra = normalizarTexto(item);
-    return (
-      produtoRegra === nomeProdutoNormalizado ||
-      nomeProdutoNormalizado.includes(produtoRegra) ||
-      produtoRegra.includes(nomeProdutoNormalizado)
-    );
-  });
-}
-
-function loadStoredTokens() {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    return raw ? JSON.parse(raw) : null;
-  } catch {
-    return null;
-  }
-}
-
-function saveStoredTokens(tokens) {
-  if (!tokens) {
-    localStorage.removeItem(STORAGE_KEY);
-    return;
-  }
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(tokens));
-}
-
-function loadStoredTheme() {
-  try {
-    const saved = localStorage.getItem(THEME_STORAGE_KEY);
-    if (saved === "light" || saved === "dark") return saved;
-  } catch {
-    // ignore and fallback
-  }
-  return window.matchMedia?.("(prefers-color-scheme: dark)").matches ? "dark" : "light";
-}
-
-function formatCurrency(value) {
-  return `R$ ${Number(value || 0).toFixed(2)}`;
-}
-
-function formatDateTimePtBr(value) {
-  if (!value) return "-";
-  return new Date(value).toLocaleString("pt-BR");
-}
-
-async function requestJson(path, options = {}) {
-  const response = await fetch(path, options);
-  const body = await response.json().catch(() => ({}));
-
-  if (!response.ok) {
-    if (typeof body?.detail === "string") {
-      throw new Error(body.detail);
-    }
-    if (typeof body === "object" && body !== null) {
-      const firstError = Object.values(body).flat()[0];
-      if (typeof firstError === "string") {
-        throw new Error(firstError);
-      }
-    }
-    throw new Error("Não foi possível concluir a requisição.");
-  }
-
-  return body;
-}
-
 function App() {
   const [theme, setTheme] = useState(() => loadStoredTheme());
   const [tokens, setTokens] = useState(() => loadStoredTokens());
@@ -281,6 +100,9 @@ function App() {
   const [catalogBatchEntries, setCatalogBatchEntries] = useState([]);
   const [catalogBatchSaving, setCatalogBatchSaving] = useState(false);
   const [movimentosLimit, setMovimentosLimit] = useState("12");
+  const [catalogUsageHistory, setCatalogUsageHistory] = useState(() =>
+    loadCatalogUsageHistory()
+  );
 
   useEffect(() => {
     document.documentElement.setAttribute("data-theme", theme);
@@ -427,6 +249,61 @@ function App() {
     });
     return list;
   }, [catalogItems]);
+
+  const smartCatalogGroups = useMemo(() => {
+    const baseList = [...catalogBrandGroups];
+    const rawTerm = (catalogQuery || quickForm.product_name || "").trim();
+    const normalizedTerm = normalizarTexto(rawTerm);
+
+    function scoreGroup(group) {
+      const product = normalizarTexto(group.product_name);
+      const brand = normalizarTexto(group.brand);
+      const variants = (group.options || [])
+        .map((entry) => normalizarTexto(entry.variant_label || DEFAULT_VARIANT_LABEL))
+        .join(" ");
+      const haystack = `${product} ${brand} ${variants}`.trim();
+      const usageScore = Number(catalogUsageHistory[group.key] || 0);
+      let relevanceScore = 0;
+
+      if (normalizedTerm) {
+        if (product === normalizedTerm || brand === normalizedTerm) relevanceScore += 120;
+        if (product.startsWith(normalizedTerm)) relevanceScore += 80;
+        if (brand.startsWith(normalizedTerm)) relevanceScore += 65;
+        if (variants.includes(normalizedTerm)) relevanceScore += 55;
+        if (haystack.includes(normalizedTerm)) relevanceScore += 40;
+      }
+
+      return relevanceScore + usageScore * 10;
+    }
+
+    const filtered = normalizedTerm
+      ? baseList.filter((group) => {
+          const product = normalizarTexto(group.product_name);
+          const brand = normalizarTexto(group.brand);
+          const variants = (group.options || []).some((entry) =>
+            normalizarTexto(entry.variant_label || DEFAULT_VARIANT_LABEL).includes(normalizedTerm)
+          );
+          return (
+            product.includes(normalizedTerm) ||
+            brand.includes(normalizedTerm) ||
+            variants
+          );
+        })
+      : baseList;
+
+    filtered.sort((a, b) => {
+      const scoreDiff = scoreGroup(b) - scoreGroup(a);
+      if (scoreDiff !== 0) return scoreDiff;
+      const productDiff = normalizarTexto(a.product_name).localeCompare(
+        normalizarTexto(b.product_name),
+        "pt-BR"
+      );
+      if (productDiff !== 0) return productDiff;
+      return normalizarTexto(a.brand).localeCompare(normalizarTexto(b.brand), "pt-BR");
+    });
+
+    return filtered;
+  }, [catalogBrandGroups, catalogQuery, quickForm.product_name, catalogUsageHistory]);
 
   const operacaoItemSelecionado = useMemo(() => {
     const id = Number(operacaoForm.variant_id || 0);
@@ -852,34 +729,150 @@ function App() {
       package_name: item.package_name || prev.package_name,
       package_units: String(item.package_units || prev.package_units || "1"),
     }));
+    registerCatalogUsage(item);
     setToast("Produto aplicado ao formulário.");
   }
 
-  function getGroupVariantOptions(group) {
-    return Array.from(
-      new Set((group?.options || []).map((entry) => entry.variant_label || "Tradicional"))
-    );
-  }
+  const sortByNormalizedText = useCallback(
+    (values) =>
+      uniqueNonEmpty(values).sort((a, b) =>
+        normalizarTexto(a).localeCompare(normalizarTexto(b), "pt-BR")
+      ),
+    []
+  );
 
-  function getGroupSizeOptions(group, variant) {
-    return (group?.options || [])
-      .filter(
-        (entry) =>
-          normalizarTexto(entry.variant_label || "Tradicional") ===
-          normalizarTexto(variant || "Tradicional")
-      )
-      .map((entry) => entry.package_size)
-      .filter(Boolean)
-      .sort((a, b) => {
+  const sortPackageSizes = useCallback(
+    (values) =>
+      uniqueNonEmpty(values).sort((a, b) => {
         const [ag, av] = tamanhoOrdenacao(a);
         const [bg, bv] = tamanhoOrdenacao(b);
         if (ag !== bg) return ag - bg;
         if (av !== bv) return av - bv;
         return normalizarTexto(a).localeCompare(normalizarTexto(b), "pt-BR");
-      });
+      }),
+    []
+  );
+
+  const getRulesForGroupProduct = useCallback(
+    (group) =>
+      (presets.product_rules || []).filter((rule) =>
+        regraCombinaProduto(rule, normalizarTexto(group?.product_name))
+      ),
+    [presets.product_rules]
+  );
+
+  const registerCatalogUsage = useCallback((item) => {
+    const product = normalizarTexto(item?.product_name);
+    const brand = normalizarTexto(item?.brand);
+    if (!product && !brand) return;
+    const key = `${product}|${brand}`;
+    setCatalogUsageHistory((prev) => {
+      const next = {
+        ...prev,
+        [key]: Number(prev?.[key] || 0) + 1,
+      };
+      saveCatalogUsageHistory(next);
+      return next;
+    });
+  }, []);
+
+  const getRuleForProductName = useCallback(
+    (productName) => {
+      const normalized = normalizarTexto(productName);
+      if (!normalized) return null;
+      const rules = presets.product_rules || [];
+      const productRules = rules.filter((rule) => regraCombinaProduto(rule, normalized));
+      return productRules[0] || null;
+    },
+    [presets.product_rules]
+  );
+
+  const getItemAlerts = useCallback(
+    (item) => {
+      const alerts = [];
+
+      if (Number(item?.stock || 0) < 5) {
+        alerts.push({
+          level: "warning",
+          label: "Baixo estoque",
+          suggestion: "Sugestão: repor estoque agora.",
+        });
+      }
+
+      if (Number(item?.price || 0) <= 0) {
+        alerts.push({
+          level: "critical",
+          label: "Sem preço",
+          suggestion: "Sugestão: definir preço de venda.",
+        });
+      }
+
+      const rule = getRuleForProductName(item?.product_name);
+      const variant = (item?.variant_label || "").trim();
+      const size = (item?.package_size || "").trim();
+      const hasRuleTypes = (rule?.types || []).length > 0;
+      const hasRuleSizes = (rule?.sizes || []).length > 0;
+      const variantAllowed =
+        !hasRuleTypes ||
+        !variant ||
+        (rule.types || []).some(
+          (value) => normalizarTexto(value) === normalizarTexto(variant)
+        );
+      const sizeAllowed =
+        !hasRuleSizes ||
+        !size ||
+        (rule.sizes || []).some((value) => normalizarTexto(value) === normalizarTexto(size));
+      const hasInconsistentVariation = !variant || !size || !variantAllowed || !sizeAllowed;
+
+      if (hasInconsistentVariation) {
+        alerts.push({
+          level: "warning",
+          label: "Variação inconsistente",
+          suggestion: "Sugestão: revisar tipo e tamanho do cadastro.",
+        });
+      }
+
+      return alerts;
+    },
+    [getRuleForProductName]
+  );
+
+  function getGroupVariantOptions(group) {
+    const normalizedProduct = normalizarTexto(group?.product_name);
+    const catalogVariants = (group?.options || []).map(
+      (entry) => entry.variant_label || DEFAULT_VARIANT_LABEL
+    );
+    const variants = uniqueNonEmpty(catalogVariants);
+    if (!normalizedProduct.includes(FEIJAO_PRODUCT_TOKEN)) {
+      return sortByNormalizedText(variants);
+    }
+    const ruleVariants = getRulesForGroupProduct(group).flatMap((rule) => rule.types || []);
+    const hasPretoNoCatalogo = variants.some(
+      (item) => normalizarTexto(item) === normalizarTexto(FEIJAO_VARIANT_PRETO)
+    );
+    const hasPretoNaApi = ruleVariants.some(
+      (item) => normalizarTexto(item) === normalizarTexto(FEIJAO_VARIANT_PRETO)
+    );
+    if (!hasPretoNoCatalogo && hasPretoNaApi) {
+      variants.push(FEIJAO_VARIANT_PRETO);
+    }
+    return sortByNormalizedText(variants);
   }
 
-  function updateCatalogChoice(groupKey, updates, defaultVariant = "Tradicional") {
+  function getGroupSizeOptions(group, variant) {
+    const catalogSizes = (group?.options || [])
+      .filter(
+        (entry) =>
+          normalizarTexto(entry.variant_label || DEFAULT_VARIANT_LABEL) ===
+          normalizarTexto(variant || DEFAULT_VARIANT_LABEL)
+      )
+      .map((entry) => entry.package_size)
+      .filter(Boolean);
+    const ruleSizes = getRulesForGroupProduct(group).flatMap((rule) => rule.sizes || []);
+    return sortPackageSizes([...catalogSizes, ...ruleSizes]);
+  }
+
+  function updateCatalogChoice(groupKey, updates, defaultVariant = DEFAULT_VARIANT_LABEL) {
     setCatalogChoices((prev) => {
       const current = prev[groupKey] || {};
       return {
@@ -898,7 +891,7 @@ function App() {
   function selectCatalogBrand(group) {
     if (!group?.options?.length) return;
     const first = group.options[0];
-    const firstVariant = first.variant_label || "Tradicional";
+    const firstVariant = first.variant_label || DEFAULT_VARIANT_LABEL;
     const sizeOptions = getGroupSizeOptions(group, firstVariant);
     const firstSize = sizeOptions[0] || first.package_size || "";
     updateCatalogChoice(group.key, {
@@ -960,6 +953,7 @@ function App() {
       updated[existingIndex] = entry;
       return updated;
     });
+    registerCatalogUsage(selected);
     setToast("Seleção adicionada ao lote.");
   }
 
@@ -967,7 +961,7 @@ function App() {
     if (!group?.options?.length) return null;
     const variantOptions = getGroupVariantOptions(group);
     const rawChoice = catalogChoices[group.key] || {};
-    const chosenVariant = rawChoice.variant || variantOptions[0] || "Tradicional";
+    const chosenVariant = rawChoice.variant || variantOptions[0] || DEFAULT_VARIANT_LABEL;
     const sizeOptions = getGroupSizeOptions(group, chosenVariant);
     const chosenSize = rawChoice.size || sizeOptions[0] || "";
     const qty = Number(rawChoice.quantity || 1);
@@ -975,13 +969,27 @@ function App() {
       setError("A quantidade deve ser no mínimo 1.");
       return null;
     }
-    const selected =
+    const selectedCatalog =
       group.options.find(
         (entry) =>
-          normalizarTexto(entry.variant_label || "Tradicional") ===
+          normalizarTexto(entry.variant_label || DEFAULT_VARIANT_LABEL) ===
             normalizarTexto(chosenVariant) &&
           normalizarTexto(entry.package_size) === normalizarTexto(chosenSize)
-      ) || group.options[0];
+      ) ||
+      group.options.find(
+        (entry) =>
+          normalizarTexto(entry.variant_label || DEFAULT_VARIANT_LABEL) ===
+          normalizarTexto(chosenVariant)
+      ) ||
+      group.options[0];
+    const selected = selectedCatalog
+      ? {
+          ...selectedCatalog,
+          variant_label:
+            chosenVariant || selectedCatalog.variant_label || DEFAULT_VARIANT_LABEL,
+          package_size: chosenSize || selectedCatalog.package_size || "",
+        }
+      : null;
     return { selected, qty };
   }
 
@@ -1312,7 +1320,7 @@ function App() {
                 Pesquisar nome
               </button>
             </div>
-            {catalogBrandGroups.length ? (
+            {smartCatalogGroups.length ? (
               <div className="catalog-results">
                 {catalogBatchEntries.length ? (
                   <article className="catalog-item full-width">
@@ -1322,7 +1330,7 @@ function App() {
                         {catalogBatchEntries
                           .slice(0, 3)
                           .map((entry) =>
-                            `${corrigirOrtografiaUI(entry.product_name)} ${corrigirOrtografiaUI(entry.variant_label)} — ${corrigirOrtografiaUI(entry.brand)} — ${corrigirOrtografiaUI(entry.package_size)} x${entry.quantity}`
+                            `${corrigirOrtografiaUI(entry.product_name)} ${corrigirOrtografiaUI(entry.variant_label)} — ${corrigirOrtografiaUI(entry.brand)} — ${formatarTamanhoUI(entry.package_size)} x${entry.quantity}`
                           )
                           .join(" | ")}
                         {catalogBatchEntries.length > 3 ? " | ..." : ""}
@@ -1338,10 +1346,11 @@ function App() {
                     </div>
                   </article>
                 ) : null}
-                {catalogBrandGroups.slice(0, 30).map((group) => {
+                {smartCatalogGroups.slice(0, 30).map((group) => {
                   const produtoUi = corrigirOrtografiaUI(group.product_name);
                   const marcaUi = corrigirOrtografiaUI(group.brand);
                   const categoriaUi = corrigirOrtografiaUI(group.category);
+                  const usageCount = Number(catalogUsageHistory[group.key] || 0);
                   const expanded = expandedCatalogGroups.includes(group.key);
                   const variantOptions = getGroupVariantOptions(group);
                   const choice = catalogChoices[group.key] || {
@@ -1363,7 +1372,15 @@ function App() {
                       <strong>
                         {`${produtoUi} — ${marcaUi}`}
                       </strong>
-                      <p>{categoriaUi} - fonte: {group.source} - {group.options.length} variações</p>
+                      <p>
+                        {categoriaUi} - fonte: {group.source} - {group.options.length} variações no estoque -{" "}
+                        {variantOptions.length} tipos exibidos
+                      </p>
+                      {usageCount > 0 ? (
+                        <p className="catalog-usage-badge">
+                          Mais usado: {usageCount}x
+                        </p>
+                      ) : null}
                     </div>
                     <div>
                       <button
@@ -1416,7 +1433,7 @@ function App() {
                             <option value="">Selecione...</option>
                             {uniqueSizes.map((size) => (
                               <option key={size} value={size}>
-                                {corrigirOrtografiaUI(size)}
+                                {formatarTamanhoUI(size)}
                               </option>
                             ))}
                           </select>
@@ -1690,23 +1707,51 @@ function App() {
                   <th>Tamanho</th>
                   <th>Preco</th>
                   <th>Estoque</th>
+                  <th>Alertas</th>
                   <th>Ação rápida</th>
                 </tr>
               </thead>
               <tbody>
-                {items.map((item) => (
-                  <tr key={item.id}>
+                {items.map((item) => {
+                  const alerts = getItemAlerts(item);
+                  const isCritical = alerts.some((alert) => alert.level === "critical");
+                  const rowClassName = isCritical
+                    ? "row-alert-critical"
+                    : alerts.length
+                      ? "row-alert-warning"
+                      : "";
+                  return (
+                  <tr key={item.id} className={rowClassName}>
                     <td>{corrigirOrtografiaUI(item.category_name)}</td>
                     <td>{corrigirOrtografiaUI((item.departments || []).join(", ")) || "-"}</td>
                     <td>{corrigirOrtografiaUI(item.product_name)}</td>
                     <td>{corrigirOrtografiaUI(item.brand)}</td>
                     <td>{corrigirOrtografiaUI(item.variant_label || "Padrão")}</td>
-                    <td>{corrigirOrtografiaUI(item.package_size)}</td>
+                    <td>{formatarTamanhoUI(item.package_size)}</td>
                     <td>{formatCurrency(item.price)}</td>
                     <td>
                       <span className={item.stock < 5 ? "tag warning" : "tag good"}>
                         {item.stock}
                       </span>
+                    </td>
+                    <td className="alerts-cell">
+                      {alerts.length ? (
+                        <>
+                          <div className="alerts-badges">
+                            {alerts.map((alert, index) => (
+                              <span
+                                key={`${item.id}-alert-${index}`}
+                                className={`tag ${alert.level === "critical" ? "danger" : "warning"}`}
+                              >
+                                {alert.label}
+                              </span>
+                            ))}
+                          </div>
+                          <p className="alert-suggestion">{alerts[0].suggestion}</p>
+                        </>
+                      ) : (
+                        <span className="tag good">Sem alertas</span>
+                      )}
                     </td>
                     <td>
                       {canWrite ? (
@@ -1751,7 +1796,8 @@ function App() {
                       )}
                     </td>
                   </tr>
-                ))}
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -1832,6 +1878,7 @@ function App() {
 }
 
 export default App;
+
 
 
 

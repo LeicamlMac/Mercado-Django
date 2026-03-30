@@ -1,5 +1,6 @@
-from rest_framework import serializers
+﻿from rest_framework import serializers
 
+from .constants import ALLOWED_DEPARTMENTS
 from .models import (
     Category,
     Department,
@@ -8,19 +9,6 @@ from .models import (
     ProductVariant,
     StockMovement,
 )
-
-ALLOWED_DEPARTMENTS = {
-    "Mercearia",
-    "Laticinios",
-    "Bebidas",
-    "Carnes",
-    "Doces",
-    "Higiene",
-    "Higiene Pessoal",
-    "Limpeza",
-    "Padaria",
-    "Congelados",
-}
 
 
 class CategorySerializer(serializers.ModelSerializer):
@@ -125,7 +113,7 @@ class ProductVariantSerializer(serializers.ModelSerializer):
 
     def validate_price(self, value):
         if value <= 0:
-            raise serializers.ValidationError("O preço deve ser maior que zero.")
+            raise serializers.ValidationError("O preco deve ser maior que zero.")
         return value
 
 
@@ -171,7 +159,7 @@ class QuickEntrySerializer(serializers.Serializer):
 
     def validate_price(self, value):
         if value <= 0:
-            raise serializers.ValidationError("O preço deve ser maior que zero.")
+            raise serializers.ValidationError("O preco deve ser maior que zero.")
         return value
 
     def validate_department_names(self, values):
@@ -209,3 +197,4 @@ class AdjustStockSerializer(serializers.Serializer):
     variant_id = serializers.IntegerField()
     quantity_units = serializers.IntegerField()
     notes = serializers.CharField(max_length=255, required=False, allow_blank=True)
+

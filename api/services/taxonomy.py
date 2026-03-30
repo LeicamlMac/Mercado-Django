@@ -1,8 +1,10 @@
 import unicodedata
 
+DEFAULT_CATEGORY = "Mercearia"
+
 
 CATEGORY_ORDER = [
-    "Mercearia",
+    DEFAULT_CATEGORY,
     "Massas e Graos",
     "Bebidas",
     "Laticinios",
@@ -13,6 +15,12 @@ CATEGORY_ORDER = [
     "Padaria",
     "Congelados",
     "Hortifruti",
+    "Frios e Embutidos",
+    "Pets",
+    "Bebe",
+    "Farmacia",
+    "Utilidades",
+    "Granel",
 ]
 
 ALLOWED_CATEGORIES = set(CATEGORY_ORDER)
@@ -28,19 +36,165 @@ DEPARTMENT_TO_CATEGORY = {
     "Limpeza": "Limpeza",
     "Padaria": "Padaria",
     "Congelados": "Congelados",
+    "Hortifruti": "Hortifruti",
+    "Frios": "Frios e Embutidos",
+    "Pet Shop": "Pets",
+    "Bebe": "Bebe",
+    "Farmacia": "Farmacia",
+    "Utilidades": "Utilidades",
+    "Granel": "Granel",
 }
 
 PRODUCT_CATEGORY_RULES = [
-    ("Massas e Graos", ["arroz", "feijao", "macarrao", "farinha", "grao", "lentilha"]),
-    ("Bebidas", ["refrigerante", "suco", "agua", "cerveja", "energetico"]),
-    ("Laticinios", ["leite", "iogurte", "queijo", "requeijao", "manteiga"]),
+    (
+        "Massas e Graos",
+        [
+            "arroz",
+            "feijao",
+            "macarrao",
+            "farinha",
+            "grao",
+            "lentilha",
+            "extrato",
+            "molho de tomate",
+            "milho verde",
+            "ervilha",
+            "atum",
+            "sardinha",
+            "vinagre",
+            "maionese",
+            "ketchup",
+            "mostarda",
+            "sal",
+            "cafe",
+            "shoyu",
+            "tempero",
+            "pimenta",
+            "paprica",
+            "oregano",
+            "cumino",
+            "acafrao",
+            "coloral",
+            "canela",
+            "noz moscada",
+            "salsa",
+            "cebolinha",
+            "azeite",
+            "farinha de mandioca",
+            "fuba",
+            "amido de milho",
+            "fermento",
+            "gelatina",
+            "leite de coco",
+            "molho ingles",
+            "molho de ostra",
+            "barbecue",
+        ],
+    ),
+    (
+        "Bebidas",
+        ["refrigerante", "suco", "agua", "cerveja", "energetico", "isotonico", "agua de coco"],
+    ),
+    (
+        "Laticinios",
+        [
+            "leite",
+            "iogurte",
+            "queijo",
+            "requeijao",
+            "manteiga",
+            "creme de leite",
+            "leite condensado",
+            "margarina",
+        ],
+    ),
     ("Carnes e Aves", ["carne", "frango", "peixe", "linguica", "suina", "bovina"]),
     ("Doces e Biscoitos", ["chocolate", "biscoito", "bala", "bombom", "doce"]),
     ("Higiene Pessoal", ["sabonete", "shampoo", "desodorante", "creme dental"]),
     ("Limpeza", ["detergente", "sabao", "amaciante", "desinfetante", "agua sanitaria"]),
-    ("Padaria", ["pao", "bolo", "biscoito salgado", "torrada"]),
-    ("Congelados", ["congelado", "hamburguer", "nuggets", "lasanha"]),
-    ("Hortifruti", ["banana", "maca", "tomate", "batata", "cebola", "alface"]),
+    ("Padaria", ["pao", "bolo", "biscoito salgado", "torrada", "pao de forma"]),
+    (
+        "Frios e Embutidos",
+        [
+            "presunto",
+            "mussarela fatiada",
+            "queijo prato fatiado",
+            "mortadela",
+            "peito de peru",
+            "salame",
+            "salsicha",
+            "bacon",
+        ],
+    ),
+    (
+        "Pets",
+        [
+            "racao cachorro",
+            "racao gato",
+            "sache",
+            "areia gato",
+            "petisco cachorro",
+            "petisco gato",
+            "tapete higienico",
+        ],
+    ),
+    ("Bebe", ["fralda", "lenco umedecido", "formula infantil", "pomada assadura", "papinha"]),
+    (
+        "Farmacia",
+        ["analgesico", "antigripal", "vitamina", "antialergico", "antisseptico", "gaze", "curativo"],
+    ),
+    (
+        "Utilidades",
+        ["saco de lixo", "papel aluminio", "filme pvc", "filtro de cafe", "vela", "fosforo", "guardanapo"],
+    ),
+    (
+        "Granel",
+        ["arroz 5kg", "arroz 10kg", "feijao 5kg", "acucar 5kg", "farinha 5kg", "oleo caixa", "fardo"],
+    ),
+    (
+        "Congelados",
+        [
+            "congelado",
+            "hamburguer",
+            "nuggets",
+            "lasanha",
+            "sorvete",
+            "picole",
+            "acai",
+            "pizza",
+            "batata congelada",
+            "polpa",
+        ],
+    ),
+    (
+        "Hortifruti",
+        [
+            "banana",
+            "maca",
+            "tomate",
+            "batata",
+            "cebola",
+            "alface",
+            "cenoura",
+            "pepino",
+            "abobrinha",
+            "brocolis",
+            "couve",
+            "repolho",
+            "mamao",
+            "laranja",
+            "uva",
+            "manga",
+            "abacaxi",
+            "melancia",
+            "melao",
+            "verdura",
+            "legume",
+            "fruta",
+            "hortifruti",
+            "cheiro verde",
+        ],
+    ),
 ]
 
 
@@ -69,4 +223,4 @@ def resolve_category_name(
         if mapped:
             return mapped
 
-    return "Mercearia"
+    return DEFAULT_CATEGORY

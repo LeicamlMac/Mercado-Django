@@ -9,6 +9,149 @@ from django.conf import settings
 
 
 BLUESOFT_BASE_URL = "https://api.cosmos.bluesoft.com.br"
+SIZE_PATTERN = re.compile(r"(\d+(?:[.,]\d+)?)\s?(ML|L|G|KG)")
+VARIANT_HINTS = (
+    "integral",
+    "desnatado",
+    "semidesnatado",
+    "parboilizado",
+    "branco",
+    "zero",
+    "sem gas",
+    "com gas",
+    "diet",
+    "light",
+)
+DEPARTMENT_KEYWORDS = (
+    (
+        "Bebidas",
+        (
+            "bebida",
+            "refrigerante",
+            "suco",
+            "agua",
+            "cha",
+            "energetico",
+            "cerveja",
+            "isotonico",
+            "agua de coco",
+        ),
+    ),
+    ("Laticinios", ("leite", "iogurte", "queijo", "requeijao", "manteiga")),
+    ("Doces", ("doce", "chocolate", "biscoito", "bala", "bombom", "pacoca")),
+    (
+        "Frios",
+        (
+            "presunto",
+            "mussarela fatiada",
+            "queijo prato fatiado",
+            "mortadela",
+            "peito de peru",
+            "salame",
+            "salsicha",
+            "bacon",
+        ),
+    ),
+    (
+        "Pet Shop",
+        (
+            "racao cachorro",
+            "racao gato",
+            "sache",
+            "areia gato",
+            "petisco cachorro",
+            "petisco gato",
+            "tapete higienico",
+        ),
+    ),
+    ("Bebe", ("fralda", "lenco umedecido", "formula infantil", "pomada assadura", "papinha")),
+    (
+        "Farmacia",
+        ("analgesico", "antigripal", "vitamina", "antialergico", "antisseptico", "gaze", "curativo"),
+    ),
+    (
+        "Utilidades",
+        ("saco de lixo", "papel aluminio", "filme pvc", "filtro de cafe", "vela", "fosforo", "guardanapo"),
+    ),
+    (
+        "Granel",
+        ("arroz 5kg", "arroz 10kg", "feijao 5kg", "acucar 5kg", "farinha 5kg", "oleo caixa", "fardo"),
+    ),
+    (
+        "Hortifruti",
+        (
+            "banana",
+            "maca",
+            "laranja",
+            "mamao",
+            "abacaxi",
+            "manga",
+            "uva",
+            "tomate",
+            "batata",
+            "cebola",
+            "cenoura",
+            "pepino",
+            "alface",
+            "couve",
+            "brocolis",
+            "repolho",
+            "cheiro verde",
+            "hortifruti",
+            "verdura",
+            "legume",
+            "fruta",
+        ),
+    ),
+    (
+        "Higiene Pessoal",
+        ("sabonete", "shampoo", "condicionador", "desodorante", "creme dental", "escova"),
+    ),
+    (
+        "Carnes",
+        (
+            "carne",
+            "frango",
+            "bovina",
+            "suina",
+            "peixe",
+            "linguica",
+            "picanha",
+            "alcatra",
+            "patinho",
+            "costela",
+            "lombo",
+            "pernil",
+        ),
+    ),
+    (
+        "Mercearia",
+        (
+            "arroz",
+            "feijao",
+            "macarrao",
+            "farinha",
+            "oleo",
+            "acucar",
+            "sal",
+            "extrato",
+            "molho de tomate",
+            "milho verde",
+            "ervilha",
+            "atum",
+            "sardinha",
+            "maionese",
+            "ketchup",
+            "mostarda",
+            "vinagre",
+            "cafe",
+            "shoyu",
+            "tempero",
+            "pimenta",
+            "azeite",
+        ),
+    ),
+)
 
 
 @dataclass
@@ -45,54 +188,19 @@ def _is_configured() -> bool:
     return bool(_token() and _agent())
 
 
+def _contains_any_term(text: str, terms: tuple[str, ...]) -> bool:
+    return any(term in text for term in terms)
+
+
 def _infer_departments(raw_text: str) -> list[str]:
     text = _normalize_for_match(raw_text)
-    mapping = [
-        ("Bebidas", ["bebida", "refrigerante", "suco", "agua", "cha", "energetico", "cerveja"]),
-        ("Laticinios", ["leite", "iogurte", "queijo", "requeijao", "manteiga"]),
-        ("Doces", ["doce", "chocolate", "biscoito", "bala", "bombom", "paçoca", "pacoca"]),
-        (
-            "Higiene Pessoal",
-            ["sabonete", "shampoo", "condicionador", "desodorante", "creme dental", "escova"],
-        ),
-        (
-            "Carnes",
-            [
-                "carne",
-                "frango",
-                "bovina",
-                "suina",
-                "peixe",
-                "linguica",
-                "picanha",
-                "alcatra",
-                "patinho",
-                "costela",
-                "lombo",
-                "pernil",
-            ],
-        ),
-        ("Mercearia", ["arroz", "feijao", "macarrao", "farinha", "oleo", "acucar", "sal"]),
-    ]
-    result = [name for name, terms in mapping if any(term in text for term in terms)]
+    result = [name for name, terms in DEPARTMENT_KEYWORDS if _contains_any_term(text, terms)]
     return result or ["Mercearia"]
 
 
 def _infer_variant(description: str) -> str:
     text = _normalize_for_match(description)
-    tokens = [
-        "integral",
-        "desnatado",
-        "semidesnatado",
-        "parboilizado",
-        "branco",
-        "zero",
-        "sem gas",
-        "com gas",
-        "diet",
-        "light",
-    ]
-    for token in tokens:
+    for token in VARIANT_HINTS:
         if token in text:
             return token.title()
     return "Tradicional"
@@ -105,7 +213,7 @@ def _extract_size(description: str, net_weight: int | float | None = None) -> st
             return f"{int(weight / 1000)}KG"
         return f"{int(weight)}G"
 
-    match = re.search(r"(\d+(?:[.,]\d+)?)\s?(ML|L|G|KG)", (description or "").upper())
+    match = SIZE_PATTERN.search((description or "").upper())
     if match:
         value = match.group(1).replace(",", ".")
         unit = match.group(2)
@@ -219,3 +327,4 @@ def search_by_name(query: str, page_size: int = 40) -> list[CatalogItem]:
 
 def bluesoft_is_configured() -> bool:
     return _is_configured()
+
