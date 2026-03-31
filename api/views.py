@@ -81,6 +81,9 @@ REFRI_BRAND_VARIANT_HINTS = {
     "kuat": {"guarana", "zero"},
     "dolly": {"guarana", "cola", "uva", "laranja", "zero"},
 }
+
+CATALOG_STOCK_SEARCH_LIMIT = 400
+CATALOG_LOCAL_SEARCH_LIMIT = 400
 BEER_BRANDS = {
     "skol",
     "brahma",
@@ -174,7 +177,7 @@ def _size_sort_tuple(value: str):
     return (9, text)
 
 
-def _search_stock_catalog(query: str, department: str = "", limit: int = 400):
+def _search_stock_catalog(query: str, department: str = "", limit: int = CATALOG_STOCK_SEARCH_LIMIT):
     term = (query or "").strip()
     if len(term) < 2:
         return []
@@ -971,9 +974,17 @@ class CatalogLookupView(APIView):
             )
 
         if len(query) >= 2:
-            stock_items = _search_stock_catalog(query, department=department)
+            stock_items = _search_stock_catalog(
+                query,
+                department=department,
+                limit=CATALOG_STOCK_SEARCH_LIMIT,
+            )
             stock_count = len(stock_items)
-            local_items = search_local_catalog(query, department=department)
+            local_items = search_local_catalog(
+                query,
+                department=department,
+                limit=CATALOG_LOCAL_SEARCH_LIMIT,
+            )
             local_count = len(local_items)
             try:
                 external_items = search_by_name(query)
@@ -1012,7 +1023,7 @@ class CatalogLookupView(APIView):
             return Response(
                 {
                     "item": None,
-                    "items": merged_items[:60],
+                    "items": merged_items,
                     "meta": {
                         "bluesoft_configurada": bluesoft_ready,
                         "resultados_estoque": stock_count,

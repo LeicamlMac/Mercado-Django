@@ -18,7 +18,12 @@ from api.services.taxonomy import resolve_category_name
 
 class Command(BaseCommand):
     help = "Seed a large and realistic atacarejo-style catalog for local development."
-    TARGET_VARIANTS = 2500
+    TARGET_VARIANTS = 6000
+    LEGACY_PRODUCT_RENAMES = (
+        ("Bovina", "Carne Bovina"),
+        ("Suina", "Carne Suina"),
+        ("Pasta de Dente", "Creme Dental"),
+    )
     INVALID_REFRI_BY_BRAND = {
         "coca": {"guarana", "laranja", "limao", "uva"},
         "pepsi": {"guarana", "laranja", "limao", "uva"},
@@ -82,8 +87,19 @@ class Command(BaseCommand):
             "departments": ["Bebidas"],
             "product": "Suco",
             "brands": ["Del Valle", "Maguary", "Tial", "Natural One", "Do Bem", "Sufresh"],
-            "variants": ["Uva", "Laranja", "Manga", "Maracuja", "Abacaxi", "Caju", "Goiaba"],
-            "sizes": ["200ML", "1L", "1.5L", "2L"],
+            "variants": [
+                "Uva",
+                "Laranja",
+                "Manga",
+                "Maracuja",
+                "Abacaxi",
+                "Caju",
+                "Goiaba",
+                "Limao",
+                "Pessego",
+                "Frutas Vermelhas",
+            ],
+            "sizes": ["200ML", "300ML", "1L", "1.5L", "2L"],
         },
         {
             "departments": ["Bebidas"],
@@ -108,7 +124,7 @@ class Command(BaseCommand):
         },
         {
             "departments": ["Higiene", "Higiene Pessoal"],
-            "product": "Pasta de Dente",
+            "product": "Creme Dental",
             "brands": ["Colgate", "Sorriso", "Oral-B", "Closeup", "Sensodyne", "Elmex"],
             "variants": ["Anticaries", "Branqueadora", "Sensibilidade", "Menta", "Infantil"],
             "sizes": ["70G", "90G", "120G"],
@@ -180,14 +196,58 @@ class Command(BaseCommand):
             "departments": ["Carnes"],
             "product": "Frango",
             "brands": ["Sadia", "Perdigao", "Seara", "Aurora", "Copacol"],
-            "variants": ["Peito", "Coxa", "Sobrecoxa", "Asa", "File"],
+            "variants": [
+                "Peito",
+                "Coxa",
+                "Sobrecoxa",
+                "Asa",
+                "File",
+                "Filezinho",
+                "Coracao",
+                "Moela",
+                "Inteiro",
+            ],
             "sizes": ["1KG", "2KG", "5KG"],
         },
         {
             "departments": ["Carnes"],
             "product": "Carne Bovina",
             "brands": ["Friboi", "Minerva", "Maturatta", "Swift", "Seara"],
-            "variants": ["Acem", "Patinho", "Alcatra", "Picanha", "Musculo"],
+            "variants": [
+                "Acem",
+                "Patinho",
+                "Alcatra",
+                "Picanha",
+                "Musculo",
+                "Coxao Mole",
+                "Coxao Duro",
+                "Fraldinha",
+                "Costela",
+                "Maminha",
+                "Contra File",
+                "File Mignon",
+                "Cupim",
+                "Lagarto",
+                "Paleta",
+                "Peito",
+            ],
+            "sizes": ["500G", "1KG", "2KG", "5KG"],
+        },
+        {
+            "departments": ["Carnes"],
+            "product": "Carne Suina",
+            "brands": ["Sadia", "Perdigao", "Seara", "Aurora", "Frimesa"],
+            "variants": [
+                "Lombo",
+                "Pernil",
+                "Costela",
+                "Bisteca",
+                "Copa Lombo",
+                "Barriga",
+                "Panceta",
+                "File Mignon Suino",
+                "Paleta",
+            ],
             "sizes": ["500G", "1KG", "2KG", "5KG"],
         },
         {
@@ -196,6 +256,234 @@ class Command(BaseCommand):
             "brands": ["Perdigao", "Sadia", "Seara", "Aurora", "Frimesa"],
             "variants": ["Toscana", "Calabresa", "Frango", "Defumada"],
             "sizes": ["400G", "1KG", "2KG"],
+        },
+        {
+            "departments": ["Congelados"],
+            "product": "Pizza Congelada",
+            "brands": ["Sadia", "Seara", "Perdigao", "Swift", "Mr. Bey"],
+            "variants": [
+                "Calabresa",
+                "Mussarela",
+                "Portuguesa",
+                "Frango Catupiry",
+                "Quatro Queijos",
+                "Pepperoni",
+                "Atum",
+            ],
+            "sizes": ["350G", "460G", "500G", "650G", "1KG"],
+        },
+        {
+            "departments": ["Congelados"],
+            "product": "Polpa de Fruta",
+            "brands": ["Brasfrut", "De Marchi", "Mais Fruta", "Fruta Polpa", "Da Fruta"],
+            "variants": [
+                "Acerola",
+                "Caju",
+                "Manga",
+                "Abacaxi",
+                "Maracuja",
+                "Goiaba",
+                "Graviola",
+                "Cupuacu",
+                "Morango",
+                "Caja",
+                "Uva",
+                "Limao",
+                "Tamarindo",
+                "Umbu",
+                "Pitanga",
+                "Frutas Vermelhas",
+            ],
+            "sizes": ["100G", "400G", "1KG"],
+        },
+        {
+            "departments": ["Mercearia"],
+            "product": "Biscoito",
+            "brands": ["Vitarella", "Marilan", "Bauducco", "Mabel", "Piraque", "Richester"],
+            "variants": ["Cream Cracker", "Maisena", "Integral", "Leite", "Chocolate", "Recheado"],
+            "sizes": ["120G", "200G", "350G", "400G"],
+        },
+        {
+            "departments": ["Mercearia"],
+            "product": "Farinha de Trigo",
+            "brands": ["Dona Benta", "Rosa Branca", "Anaconda", "Lili", "Boa Sorte"],
+            "variants": ["Tradicional", "Com Fermento", "Sem Fermento", "Integral"],
+            "sizes": ["1KG", "5KG"],
+        },
+        {
+            "departments": ["Mercearia"],
+            "product": "Molho de Tomate",
+            "brands": ["Quero", "Fugini", "Elefante", "Pomarola", "Predilecta"],
+            "variants": ["Tradicional", "Manjericao", "Pizza", "Bolonhesa", "Sugo"],
+            "sizes": ["300G", "340G", "520G", "1KG"],
+        },
+        {
+            "departments": ["Mercearia"],
+            "product": "Extrato de Tomate",
+            "brands": ["Elefante", "Quero", "Fugini", "Predilecta"],
+            "variants": ["Tradicional", "Refogado", "Sem Conservantes"],
+            "sizes": ["130G", "300G", "340G", "1KG"],
+        },
+        {
+            "departments": ["Mercearia"],
+            "product": "Tempero Pronto",
+            "brands": ["Sazon", "Arisco", "Kitano", "Knorr", "Sinha"],
+            "variants": ["Alho e Sal", "Carne", "Frango", "Legumes", "Baiano"],
+            "sizes": ["60G", "100G", "300G", "1KG"],
+        },
+        {
+            "departments": ["Mercearia"],
+            "product": "Achocolatado",
+            "brands": ["Nescau", "Toddy", "Italac", "3 Coracoes", "Apti"],
+            "variants": ["Tradicional", "Light", "Zero Acucar"],
+            "sizes": ["200G", "400G", "700G", "1KG"],
+        },
+        {
+            "departments": ["Mercearia"],
+            "product": "Ovos",
+            "brands": ["Mantiqueira", "Yabuta", "Avine", "Granja Faria", "Korin"],
+            "variants": ["Branco", "Vermelho", "Caipira", "Jumbo"],
+            "sizes": ["6UN", "12UN", "20UN", "30UN"],
+        },
+        {
+            "departments": ["Laticinios"],
+            "product": "Manteiga",
+            "brands": ["Itambe", "Aviacao", "Vigor", "President", "Elegue"],
+            "variants": ["Com Sal", "Sem Sal", "Extra"],
+            "sizes": ["200G", "500G"],
+        },
+        {
+            "departments": ["Laticinios"],
+            "product": "Margarina",
+            "brands": ["Qualy", "Delicia", "Claybom", "Doriana", "Becel"],
+            "variants": ["Com Sal", "Sem Sal", "Light"],
+            "sizes": ["250G", "500G", "1KG"],
+        },
+        {
+            "departments": ["Laticinios"],
+            "product": "Requeijao",
+            "brands": ["Catupiry", "Vigor", "Italac", "Polenghi", "Tirolez"],
+            "variants": ["Tradicional", "Light", "Cheddar", "Zero Lactose"],
+            "sizes": ["180G", "200G", "400G"],
+        },
+        {
+            "departments": ["Frios"],
+            "product": "Presunto",
+            "brands": ["Sadia", "Perdigao", "Seara", "Aurora", "Frimesa"],
+            "variants": ["Fatiado", "Cozido", "Defumado", "Light"],
+            "sizes": ["100G", "200G", "500G", "1KG"],
+        },
+        {
+            "departments": ["Frios"],
+            "product": "Mussarela Fatiada",
+            "brands": ["Sadia", "Tirolez", "Polenghi", "Italac", "Vigor"],
+            "variants": ["Tradicional", "Light", "Lanche"],
+            "sizes": ["150G", "200G", "500G", "1KG"],
+        },
+        {
+            "departments": ["Padaria"],
+            "product": "Pao de Forma",
+            "brands": ["Pullman", "Wickbold", "Seven Boys", "Bauducco", "Visconti"],
+            "variants": ["Tradicional", "Integral", "Multigraos", "Zero Acucar"],
+            "sizes": ["400G", "500G", "600G"],
+        },
+        {
+            "departments": ["Padaria"],
+            "product": "Bolo Pronto",
+            "brands": ["Bauducco", "Panco", "Ana Maria", "Visconti", "Casa Suica"],
+            "variants": ["Chocolate", "Cenoura", "Laranja", "Fuba", "Milho"],
+            "sizes": ["250G", "400G", "500G", "1KG"],
+        },
+        {
+            "departments": ["Limpeza"],
+            "product": "Amaciante",
+            "brands": ["Ype", "Comfort", "Fofo", "Urca", "Baby Soft"],
+            "variants": ["Tradicional", "Lavanda", "Floral", "Intense"],
+            "sizes": ["500ML", "1L", "2L", "5L"],
+        },
+        {
+            "departments": ["Limpeza"],
+            "product": "Limpador Multiuso",
+            "brands": ["Veja", "Uau", "Ype", "Mr Musculo", "Casa & Perfume"],
+            "variants": ["Tradicional", "Lavanda", "Limao", "Desengordurante"],
+            "sizes": ["500ML", "750ML", "1L"],
+        },
+        {
+            "departments": ["Limpeza"],
+            "product": "Esponja Multiuso",
+            "brands": ["Scotch-Brite", "Ype", "Bombril", "Assolan", "Bettanin"],
+            "variants": ["Dupla Face", "Antirrisco", "Tradicional"],
+            "sizes": ["1UN", "3UN", "4UN", "8UN"],
+        },
+        {
+            "departments": ["Limpeza"],
+            "product": "Papel Toalha",
+            "brands": ["Snob", "Kitchen", "Neve", "Mili", "Scala"],
+            "variants": ["Folha Simples", "Folha Dupla", "Folha Tripla"],
+            "sizes": ["1UN", "2UN", "3UN", "6UN"],
+        },
+        {
+            "departments": ["Hortifruti"],
+            "product": "Banana",
+            "brands": ["Hortifruti"],
+            "variants": ["Nanica", "Prata", "Maca", "Da Terra"],
+            "sizes": ["500G", "1KG", "2KG", "1UN"],
+        },
+        {
+            "departments": ["Hortifruti"],
+            "product": "Limao",
+            "brands": ["Hortifruti"],
+            "variants": ["Taiti", "Siciliano", "Galego"],
+            "sizes": ["500G", "1KG", "2KG"],
+        },
+        {
+            "departments": ["Hortifruti"],
+            "product": "Laranja",
+            "brands": ["Hortifruti"],
+            "variants": ["Pera", "Lima", "Bahia"],
+            "sizes": ["500G", "1KG", "2KG", "5KG"],
+        },
+        {
+            "departments": ["Hortifruti"],
+            "product": "Maca",
+            "brands": ["Hortifruti"],
+            "variants": ["Gala", "Fuji", "Verde"],
+            "sizes": ["500G", "1KG", "2KG"],
+        },
+        {
+            "departments": ["Hortifruti"],
+            "product": "Tomate",
+            "brands": ["Hortifruti"],
+            "variants": ["Salada", "Italiano", "Cereja"],
+            "sizes": ["500G", "1KG", "2KG"],
+        },
+        {
+            "departments": ["Hortifruti"],
+            "product": "Batata",
+            "brands": ["Hortifruti"],
+            "variants": ["In Natura", "Asterix", "Monalisa"],
+            "sizes": ["500G", "1KG", "2KG", "5KG"],
+        },
+        {
+            "departments": ["Hortifruti"],
+            "product": "Cebola",
+            "brands": ["Hortifruti"],
+            "variants": ["Branca", "Roxa", "Perola"],
+            "sizes": ["500G", "1KG", "2KG", "5KG"],
+        },
+        {
+            "departments": ["Hortifruti"],
+            "product": "Alho",
+            "brands": ["Hortifruti"],
+            "variants": ["Nacional", "Importado", "Descascado"],
+            "sizes": ["100G", "200G", "500G", "1KG"],
+        },
+        {
+            "departments": ["Hortifruti"],
+            "product": "Cenoura",
+            "brands": ["Hortifruti"],
+            "variants": ["In Natura", "Baby"],
+            "sizes": ["500G", "1KG", "2KG"],
         },
     ]
 
@@ -245,8 +533,8 @@ class Command(BaseCommand):
             "departments": ["Higiene", "Higiene Pessoal"],
         },
         {
-            "category": "Pasta de Dente",
-            "product": "Pasta de Dente",
+            "category": "Creme Dental",
+            "product": "Creme Dental",
             "brand": "Colgate",
             "variant": "Anticaries",
             "size": "90G",
@@ -307,7 +595,7 @@ class Command(BaseCommand):
             return [("UNIDADE", 1), ("FARDO", 8), ("PALETE", 64)]
         if "escova de dente" in normalized_product:
             return [("UNIDADE", 1), ("CAIXA", 12)]
-        if "pasta de dente" in normalized_product:
+        if "pasta de dente" in normalized_product or "creme dental" in normalized_product:
             return [("UNIDADE", 1), ("CAIXA", 12)]
         if "refrigerante" in normalized_product or "suco" in normalized_product or "agua" in normalized_product:
             return [("UNIDADE", 1), ("FARDO", 6), ("PALETE", 48)]
@@ -390,6 +678,75 @@ class Command(BaseCommand):
 
         return list(merged.values())
 
+    def _merge_variant_records(self, source_variant, target_variant):
+        target_variant.stock = max(target_variant.stock, source_variant.stock)
+        target_variant.price = source_variant.price
+        target_variant.is_active = target_variant.is_active or source_variant.is_active
+        target_variant.save(update_fields=["stock", "price", "is_active", "updated_at"])
+
+        for source_package in list(source_variant.packages.all()):
+            target_package, pkg_created = ProductPackage.objects.get_or_create(
+                variant=target_variant,
+                name=source_package.name,
+                defaults={
+                    "units_per_package": source_package.units_per_package,
+                    "is_default": source_package.is_default,
+                    "is_active": source_package.is_active,
+                },
+            )
+            source_variant.movements.filter(package=source_package).update(package=target_package)
+            if not pkg_created:
+                target_package.units_per_package = max(
+                    target_package.units_per_package,
+                    source_package.units_per_package,
+                )
+                target_package.is_active = target_package.is_active or source_package.is_active
+                target_package.is_default = target_package.is_default or source_package.is_default
+                target_package.save(
+                    update_fields=["units_per_package", "is_active", "is_default", "updated_at"]
+                )
+            source_package.delete()
+
+        source_variant.movements.update(variant=target_variant)
+        source_variant.delete()
+
+    def _merge_legacy_product_names(self, old_name, new_name):
+        source_bases = list(ProductBase.objects.filter(name__iexact=old_name))
+        for source_base in source_bases:
+            target_base, _ = ProductBase.objects.get_or_create(
+                category=source_base.category,
+                name=new_name,
+                brand=source_base.brand,
+                defaults={"is_active": source_base.is_active},
+            )
+            if source_base.id == target_base.id:
+                continue
+
+            merged_departments = set(target_base.departments.values_list("id", flat=True))
+            merged_departments.update(source_base.departments.values_list("id", flat=True))
+            if merged_departments:
+                target_base.departments.set(list(merged_departments))
+
+            for source_variant in list(source_base.variants.all()):
+                target_variant, created = ProductVariant.objects.get_or_create(
+                    product=target_base,
+                    variant_label=source_variant.variant_label,
+                    package_size=source_variant.package_size,
+                    defaults={
+                        "price": source_variant.price,
+                        "stock": source_variant.stock,
+                        "is_active": source_variant.is_active,
+                    },
+                )
+                if created:
+                    source_variant.packages.update(variant=target_variant)
+                    source_variant.movements.update(variant=target_variant)
+                    source_variant.delete()
+                    continue
+                self._merge_variant_records(source_variant, target_variant)
+
+            source_base.delete()
+
     def _cleanup_legacy_noise(self):
         removed = 0
 
@@ -440,6 +797,10 @@ class Command(BaseCommand):
         )
         removed += bad_beer.count()
         bad_beer.delete()
+
+        # Consolidate old naming into canonical product names.
+        for old_name, new_name in self.LEGACY_PRODUCT_RENAMES:
+            self._merge_legacy_product_names(old_name, new_name)
 
         # Drop orphan product bases left by cleanup.
         ProductBase.objects.filter(variants__isnull=True).delete()

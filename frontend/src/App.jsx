@@ -1346,7 +1346,7 @@ function App() {
                     </div>
                   </article>
                 ) : null}
-                {smartCatalogGroups.slice(0, 30).map((group) => {
+                {smartCatalogGroups.map((group) => {
                   const produtoUi = corrigirOrtografiaUI(group.product_name);
                   const marcaUi = corrigirOrtografiaUI(group.brand);
                   const categoriaUi = corrigirOrtografiaUI(group.category);

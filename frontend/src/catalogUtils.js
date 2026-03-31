@@ -168,12 +168,14 @@ export function regraPossuiProduto(regra) {
 
 export function regraCombinaProduto(regra, nomeProdutoNormalizado) {
   if (!nomeProdutoNormalizado) return false;
+  const matchByPrefix = (value, prefix) =>
+    value === prefix || value.startsWith(`${prefix} `) || value.startsWith(`${prefix}-`);
   return (regra?.products || []).some((item) => {
     const produtoRegra = normalizarTexto(item);
     return (
       produtoRegra === nomeProdutoNormalizado ||
-      nomeProdutoNormalizado.includes(produtoRegra) ||
-      produtoRegra.includes(nomeProdutoNormalizado)
+      matchByPrefix(nomeProdutoNormalizado, produtoRegra) ||
+      matchByPrefix(produtoRegra, nomeProdutoNormalizado)
     );
   });
 }
