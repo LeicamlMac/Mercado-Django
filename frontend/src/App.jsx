@@ -15,6 +15,7 @@ import {
   SETORES_PADRAO,
   STATUS_FILTER_OPTIONS,
   THEME_STORAGE_KEY,
+  compareNormalizedPtBr,
   corrigirOrtografiaUI,
   formatCurrency,
   formatDateTimePtBr,
@@ -24,6 +25,7 @@ import {
   loadStoredTheme,
   loadStoredTokens,
   normalizarTexto,
+  parseApiErrorMessage,
   regraCombinaProduto,
   regraPossuiProduto,
   requestJson,
@@ -279,12 +281,12 @@ function App() {
       group.options.sort((a, b) => {
         const av = normalizarTexto(a.variant_label);
         const bv = normalizarTexto(b.variant_label);
-        if (av !== bv) return av.localeCompare(bv, "pt-BR");
+        if (av !== bv) return compareNormalizedPtBr(av, bv);
         const [ag, avn] = tamanhoOrdenacao(a.package_size);
         const [bg, bvn] = tamanhoOrdenacao(b.package_size);
         if (ag !== bg) return ag - bg;
         if (avn !== bvn) return avn - bvn;
-        return normalizarTexto(a.package_size).localeCompare(normalizarTexto(b.package_size), "pt-BR");
+        return compareNormalizedPtBr(a.package_size, b.package_size);
       });
       return group;
     });
@@ -292,8 +294,8 @@ function App() {
     list.sort((a, b) => {
       const ap = normalizarTexto(a.product_name);
       const bp = normalizarTexto(b.product_name);
-      if (ap !== bp) return ap.localeCompare(bp, "pt-BR");
-      return normalizarTexto(a.brand).localeCompare(normalizarTexto(b.brand), "pt-BR");
+      if (ap !== bp) return compareNormalizedPtBr(ap, bp);
+      return compareNormalizedPtBr(a.brand, b.brand);
     });
     return list;
   }, [catalogItems]);
@@ -342,12 +344,9 @@ function App() {
     filtered.sort((a, b) => {
       const scoreDiff = scoreGroup(b) - scoreGroup(a);
       if (scoreDiff !== 0) return scoreDiff;
-      const productDiff = normalizarTexto(a.product_name).localeCompare(
-        normalizarTexto(b.product_name),
-        "pt-BR"
-      );
+      const productDiff = compareNormalizedPtBr(a.product_name, b.product_name);
       if (productDiff !== 0) return productDiff;
-      return normalizarTexto(a.brand).localeCompare(normalizarTexto(b.brand), "pt-BR");
+      return compareNormalizedPtBr(a.brand, b.brand);
     });
 
     return filtered;
@@ -416,16 +415,7 @@ function App() {
 
       const body = await response.json().catch(() => ({}));
       if (!response.ok) {
-        if (typeof body?.detail === "string") {
-          throw new Error(body.detail);
-        }
-        if (typeof body === "object" && body !== null) {
-          const firstError = Object.values(body).flat()[0];
-          if (typeof firstError === "string") {
-            throw new Error(firstError);
-          }
-        }
-        throw new Error("Não foi possível concluir a requisição.");
+        throw new Error(parseApiErrorMessage(body, "Nao foi possivel concluir a requisicao."));
       }
 
       return response.status === 204 ? null : body;
@@ -783,9 +773,7 @@ function App() {
 
   const sortByNormalizedText = useCallback(
     (values) =>
-      uniqueNonEmpty(values).sort((a, b) =>
-        normalizarTexto(a).localeCompare(normalizarTexto(b), "pt-BR")
-      ),
+      uniqueNonEmpty(values).sort((a, b) => compareNormalizedPtBr(a, b)),
     []
   );
 
@@ -796,7 +784,7 @@ function App() {
         const [bg, bv] = tamanhoOrdenacao(b);
         if (ag !== bg) return ag - bg;
         if (av !== bv) return av - bv;
-        return normalizarTexto(a).localeCompare(normalizarTexto(b), "pt-BR");
+        return compareNormalizedPtBr(a, b);
       }),
     []
   );

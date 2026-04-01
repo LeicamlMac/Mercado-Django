@@ -79,17 +79,85 @@ WSGI_APPLICATION = 'config.wsgi.application'
 # Database
 # https://docs.djangoproject.com/en/6.0/ref/settings/#databases
 
-DATABASES = {
-    'default': {
-        'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': BASE_DIR / 'db.sqlite3',
-        'CONN_MAX_AGE': int(os.getenv('DB_CONN_MAX_AGE', '60')),
-        'ATOMIC_REQUESTS': True,
-        'OPTIONS': {
-            'timeout': int(os.getenv('DB_SQLITE_TIMEOUT', '30')),
+def _as_int(name, default):
+    try:
+        return int(os.getenv(name, str(default)))
+    except (TypeError, ValueError):
+        return default
+
+
+def _as_bool(name, default=False):
+    value = os.getenv(name)
+    if value is None:
+        return default
+    return str(value).strip().lower() in {"1", "true", "yes", "on"}
+
+
+DB_BACKEND = os.getenv("DB_BACKEND", "sqlite").strip().lower()
+DB_CONN_MAX_AGE = _as_int("DB_CONN_MAX_AGE", 120)
+DB_ATOMIC_REQUESTS = _as_bool("DB_ATOMIC_REQUESTS", True)
+
+if DB_BACKEND in {"postgres", "postgresql", "pg"}:
+    db_name = os.getenv("DB_NAME", "mercado")
+    db_user = os.getenv("DB_USER", "postgres")
+    db_password = os.getenv("DB_PASSWORD", "")
+    db_host = os.getenv("DB_HOST", "127.0.0.1")
+    db_port = _as_int("DB_PORT", 5432)
+    db_sslmode = os.getenv("DB_SSLMODE", "prefer")
+    db_connect_timeout = _as_int("DB_CONNECT_TIMEOUT", 10)
+    db_statement_timeout_ms = _as_int("DB_STATEMENT_TIMEOUT_MS", 12000)
+    db_lock_timeout_ms = _as_int("DB_LOCK_TIMEOUT_MS", 5000)
+    db_idle_tx_timeout_ms = _as_int("DB_IDLE_IN_TX_TIMEOUT_MS", 30000)
+    db_app_name = os.getenv("DB_APP_NAME", "mercado-api")
+    db_timezone = os.getenv("DB_TIMEZONE", "America/Sao_Paulo")
+
+    pg_options = (
+        f"-c statement_timeout={db_statement_timeout_ms} "
+        f"-c lock_timeout={db_lock_timeout_ms} "
+        f"-c idle_in_transaction_session_timeout={db_idle_tx_timeout_ms} "
+        f"-c timezone={db_timezone}"
+    )
+
+    default_db = {
+        "ENGINE": "django.db.backends.postgresql",
+        "NAME": db_name,
+        "USER": db_user,
+        "PASSWORD": db_password,
+        "HOST": db_host,
+        "PORT": db_port,
+        "CONN_MAX_AGE": DB_CONN_MAX_AGE,
+        "CONN_HEALTH_CHECKS": True,
+        "ATOMIC_REQUESTS": DB_ATOMIC_REQUESTS,
+        "DISABLE_SERVER_SIDE_CURSORS": _as_bool("DB_DISABLE_SERVER_SIDE_CURSORS", False),
+        "OPTIONS": {
+            "connect_timeout": db_connect_timeout,
+            "sslmode": db_sslmode,
+            "application_name": db_app_name,
+            "options": pg_options,
         },
     }
-}
+
+    # Django 5.1+ / 6.x with psycopg can use built-in pooling.
+    if _as_bool("DB_POOL_ENABLED", True):
+        default_db["OPTIONS"]["pool"] = {
+            "min_size": _as_int("DB_POOL_MIN_SIZE", 4),
+            "max_size": _as_int("DB_POOL_MAX_SIZE", 40),
+            "timeout": _as_int("DB_POOL_TIMEOUT", 30),
+        }
+
+    DATABASES = {"default": default_db}
+else:
+    DATABASES = {
+        "default": {
+            "ENGINE": "django.db.backends.sqlite3",
+            "NAME": BASE_DIR / "db.sqlite3",
+            "CONN_MAX_AGE": DB_CONN_MAX_AGE,
+            "ATOMIC_REQUESTS": DB_ATOMIC_REQUESTS,
+            "OPTIONS": {
+                "timeout": _as_int("DB_SQLITE_TIMEOUT", 30),
+            },
+        }
+    }
 
 
 # Password validation

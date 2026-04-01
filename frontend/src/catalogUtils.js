@@ -1,14 +1,15 @@
-﻿export const STORAGE_KEY = "mercado_auth_tokens";
+export const STORAGE_KEY = "mercado_auth_tokens";
 export const THEME_STORAGE_KEY = "mercado_theme";
 export const CATALOG_USAGE_STORAGE_KEY = "mercado_catalog_usage_v1";
+
 export const DEFAULT_ORDERING = "product__name,product__brand,variant_label,package_size";
 
 export const ORDERING_OPTIONS = [
-  { value: "product__name,product__brand,variant_label,package_size", label: "Produto (A-Z)" },
+  { value: DEFAULT_ORDERING, label: "Produto (A-Z)" },
   { value: "-product__name,-product__brand,-variant_label,-package_size", label: "Produto (Z-A)" },
   { value: "-updated_at", label: "Atualizados recentemente" },
-  { value: "-price", label: "Maior preÃ§o" },
-  { value: "price", label: "Menor preÃ§o" },
+  { value: "-price", label: "Maior preco" },
+  { value: "price", label: "Menor preco" },
 ];
 
 export const STATUS_FILTER_OPTIONS = [
@@ -52,7 +53,7 @@ export const MOVIMENTO_LABEL = {
   SELL: "Venda",
   ADJUST: "Ajuste",
   LOSS: "Perda",
-  RETURN: "DevoluÃ§Ã£o",
+  RETURN: "Devolução",
 };
 
 export const SETORES_PADRAO = [
@@ -85,18 +86,28 @@ export const EMPTY_CATALOG_META = {
 export const DEFAULT_VARIANT_LABEL = "Tradicional";
 export const FEIJAO_PRODUCT_TOKEN = "feij";
 export const FEIJAO_VARIANT_PRETO = "Preto";
+
+const DIACRITICS_REGEX = /[\u0300-\u036f]/g;
+const PT_BR_COLLATOR = new Intl.Collator("pt-BR");
+const SIZE_REGEX = /(\d+(?:\.\d+)?)\s*(kg|g|l|ml|un)$/i;
+const LITERS_UI_REGEX = /^(\d+(?:[.,]\d+)?)\s*L$/i;
+
 const ORTHOGRAPHY_SUBSTITUTIONS = [
   [/Laticinios/gi, "Laticínios"],
   [/Higienico/gi, "Higiênico"],
   [/Acucar/gi, "Açúcar"],
-  [/Cafe/gi, "Café"],
+  [/Cafe Soluvel/gi, "Café Solúvel"],
+  [/\bCafe\b/gi, "Café"],
+  [/\bCha\b/gi, "Chá"],
   [/Limao/gi, "Limão"],
   [/Maracuja/gi, "Maracujá"],
-  [/Pao/gi, "Pão"],
+  [/Pao de Queijo/gi, "Pão de Queijo"],
+  [/Pao de Alho/gi, "Pão de Alho"],
+  [/\bPao\b/gi, "Pão"],
   [/Sabao em Po/gi, "Sabão em Pó"],
-  [/Sabao/gi, "Sabão"],
+  [/\bSabao\b/gi, "Sabão"],
   [/Agua Sanitaria/gi, "Água Sanitária"],
-  [/Agua/gi, "Água"],
+  [/\bAgua\b/gi, "Água"],
   [/Linguica/gi, "Linguiça"],
   [/Anticaries/gi, "Anticáries"],
   [/Sem Acucar/gi, "Sem Açúcar"],
@@ -109,31 +120,54 @@ const ORTHOGRAPHY_SUBSTITUTIONS = [
   [/\bAco\b/gi, "Aço"],
   [/\bPacoca\b/gi, "Paçoca"],
   [/\bMaco\b/gi, "Maço"],
-  [/Pao de Queijo/gi, "Pão de Queijo"],
-  [/Pao de Alho/gi, "Pão de Alho"],
   [/Ovo de Pascoa/gi, "Ovo de Páscoa"],
-  [/\bCha\b/gi, "Chá"],
-  [/Cafe Soluvel/gi, "Café Solúvel"],
   [/Bebe/gi, "Bebê"],
   [/Farmacia/gi, "Farmácia"],
   [/ElegÃª/gi, "Elege"],
-  [/Feijao-de-corda/gi, "Feijão-de-corda"],
-  [/Feijao/gi, "Feijão"],
-  [/Parboilizado/gi, "Parboilizado"],
+  [/Feijao-de-corda/gi, "Feijao-de-corda"],
+  [/Feijao/gi, "Feijao"],
 ];
 
+function getFirstApiErrorValue(payload) {
+  if (!payload || typeof payload !== "object") return null;
+  const values = Object.values(payload).flat();
+  const first = values[0];
+  return typeof first === "string" ? first : null;
+}
+
+function parseStoredJson(rawValue, fallback) {
+  if (!rawValue) return fallback;
+  try {
+    const parsed = JSON.parse(rawValue);
+    return parsed ?? fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+function readStorage(key, fallback) {
+  try {
+    return parseStoredJson(localStorage.getItem(key), fallback);
+  } catch {
+    return fallback;
+  }
+}
+
 export function normalizarTexto(value) {
-  return (value || "")
+  return String(value || "")
     .toLowerCase()
     .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
+    .replace(DIACRITICS_REGEX, "")
     .trim();
+}
+
+export function compareNormalizedPtBr(a, b) {
+  return PT_BR_COLLATOR.compare(normalizarTexto(a), normalizarTexto(b));
 }
 
 export function corrigirOrtografiaUI(value) {
   let text = String(value || "").trim();
   if (!text) return "";
-
   for (const [pattern, replacement] of ORTHOGRAPHY_SUBSTITUTIONS) {
     text = text.replace(pattern, replacement);
   }
@@ -143,15 +177,16 @@ export function corrigirOrtografiaUI(value) {
 export function formatarTamanhoUI(value) {
   const text = String(value || "").trim();
   if (!text) return "";
-  const litro = text.match(/^(\d+(?:[.,]\d+)?)\s*L$/i);
-  if (litro) return `${litro[1]} Litro`;
+  const liters = text.match(LITERS_UI_REGEX);
+  if (liters) return `${liters[1]} Litro`;
   return text.toUpperCase();
 }
 
 export function tamanhoOrdenacao(value) {
-  const text = normalizarTexto(value);
-  const match = text.match(/(\d+(?:\.\d+)?)\s*(kg|g|l|ml|un)$/i);
-  if (!match) return [9, text];
+  const normalized = normalizarTexto(value);
+  const match = normalized.match(SIZE_REGEX);
+  if (!match) return [9, normalized];
+
   const number = Number(match[1]);
   const unit = match[2];
   if (unit === "kg") return [0, number * 1000];
@@ -159,7 +194,7 @@ export function tamanhoOrdenacao(value) {
   if (unit === "l") return [1, number * 1000];
   if (unit === "ml") return [1, number];
   if (unit === "un") return [2, number];
-  return [9, text];
+  return [9, normalized];
 }
 
 export function uniqueNonEmpty(values) {
@@ -167,10 +202,10 @@ export function uniqueNonEmpty(values) {
 }
 
 export function limparTipoArroz(productName, variantLabel) {
-  const produto = normalizarTexto(productName);
-  const rotulo = (variantLabel || "").trim();
+  const produtoNormalizado = normalizarTexto(productName);
+  const rotulo = String(variantLabel || "").trim();
   if (!rotulo) return "";
-  if (!produto.includes("arroz")) return rotulo;
+  if (!produtoNormalizado.includes("arroz")) return rotulo;
   return rotulo.replace(/\btipo\s*\d+\b/gi, "").replace(/\s{2,}/g, " ").trim();
 }
 
@@ -182,6 +217,7 @@ export function regraCombinaProduto(regra, nomeProdutoNormalizado) {
   if (!nomeProdutoNormalizado) return false;
   const matchByPrefix = (value, prefix) =>
     value === prefix || value.startsWith(`${prefix} `) || value.startsWith(`${prefix}-`);
+
   return (regra?.products || []).some((item) => {
     const produtoRegra = normalizarTexto(item);
     return (
@@ -193,20 +229,19 @@ export function regraCombinaProduto(regra, nomeProdutoNormalizado) {
 }
 
 export function loadStoredTokens() {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    return raw ? JSON.parse(raw) : null;
-  } catch {
-    return null;
-  }
+  return readStorage(STORAGE_KEY, null);
 }
 
 export function saveStoredTokens(tokens) {
-  if (!tokens) {
-    localStorage.removeItem(STORAGE_KEY);
-    return;
+  try {
+    if (!tokens) {
+      localStorage.removeItem(STORAGE_KEY);
+      return;
+    }
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(tokens));
+  } catch {
+    // ignore storage write errors
   }
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(tokens));
 }
 
 export function loadStoredTheme() {
@@ -220,20 +255,15 @@ export function loadStoredTheme() {
 }
 
 export function loadCatalogUsageHistory() {
-  try {
-    const raw = localStorage.getItem(CATALOG_USAGE_STORAGE_KEY);
-    const parsed = raw ? JSON.parse(raw) : {};
-    return parsed && typeof parsed === "object" ? parsed : {};
-  } catch {
-    return {};
-  }
+  const history = readStorage(CATALOG_USAGE_STORAGE_KEY, {});
+  return history && typeof history === "object" ? history : {};
 }
 
 export function saveCatalogUsageHistory(history) {
   try {
     localStorage.setItem(CATALOG_USAGE_STORAGE_KEY, JSON.stringify(history || {}));
   } catch {
-    // Ignore storage write errors in browsers with restricted storage.
+    // ignore storage write errors
   }
 }
 
@@ -246,23 +276,18 @@ export function formatDateTimePtBr(value) {
   return new Date(value).toLocaleString("pt-BR");
 }
 
+export function parseApiErrorMessage(body, fallbackMessage = "Nao foi possivel concluir a requisicao.") {
+  if (typeof body?.detail === "string") return body.detail;
+  const firstError = getFirstApiErrorValue(body);
+  if (firstError) return firstError;
+  return fallbackMessage;
+}
+
 export async function requestJson(path, options = {}) {
   const response = await fetch(path, options);
   const body = await response.json().catch(() => ({}));
-
   if (!response.ok) {
-    if (typeof body?.detail === "string") {
-      throw new Error(body.detail);
-    }
-    if (typeof body === "object" && body !== null) {
-      const firstError = Object.values(body).flat()[0];
-      if (typeof firstError === "string") {
-        throw new Error(firstError);
-      }
-    }
-    throw new Error("Nao foi possivel concluir a requisicao.");
+    throw new Error(parseApiErrorMessage(body));
   }
-
   return body;
 }
-

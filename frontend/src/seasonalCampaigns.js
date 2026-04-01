@@ -1,4 +1,4 @@
-export const FESTIVAL_CALENDAR = [
+const FESTIVAL_CALENDAR_BASE = [
   {
     id: "carnaval",
     name: "Carnaval",
@@ -18,7 +18,7 @@ export const FESTIVAL_CALENDAR = [
     name: "Festa Junina",
     months: [6, 7],
     description: "Produtos típicos de arraial e mercearia sazonal.",
-    keywords: ["milho", "amendoim", "paçoca", "canjica", "polvilho"],
+    keywords: ["milho", "amendoim", "pacoca", "canjica", "polvilho"],
   },
   {
     id: "inverno",
@@ -49,6 +49,22 @@ export const FESTIVAL_CALENDAR = [
     keywords: ["espumante", "vinho", "whisky", "refrigerante", "gelo"],
   },
 ];
+
+function dedupeKeywords(keywords) {
+  return Array.from(
+    new Set(
+      (keywords || [])
+        .map((term) => String(term || "").trim())
+        .filter(Boolean)
+    )
+  );
+}
+
+export const FESTIVAL_CALENDAR = FESTIVAL_CALENDAR_BASE.map((campaign) => ({
+  ...campaign,
+  months: [...campaign.months],
+  keywords: dedupeKeywords(campaign.keywords),
+}));
 
 export function buildSeasonalCampaigns(currentMonth) {
   return FESTIVAL_CALENDAR.map((campaign) => ({

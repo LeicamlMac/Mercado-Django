@@ -1,4 +1,4 @@
-import json
+﻿import json
 import random
 import statistics
 import threading
@@ -37,21 +37,21 @@ def to_ms(seconds):
 
 
 class Command(BaseCommand):
-    help = "Executa teste de estresse no banco e gera relatório visual (HTML + JSON)."
+    help = "Executa teste de estresse no banco e gera relatorio visual (HTML + JSON)."
 
     def add_arguments(self, parser):
-        parser.add_argument("--threads", type=int, default=8, help="Número de threads concorrentes.")
+        parser.add_argument("--threads", type=int, default=8, help="Numero de threads concorrentes.")
         parser.add_argument(
             "--ops-per-thread",
             type=int,
             default=250,
-            help="Quantidade de operações por thread.",
+            help="Quantidade de operacoes por thread.",
         )
         parser.add_argument(
             "--read-ratio",
             type=float,
             default=0.8,
-            help="Proporção de leituras (0.0 a 1.0). Ex: 0.8 = 80%% leitura.",
+            help="Proporcao de leituras (0.0 a 1.0). Ex: 0.8 = 80%% leitura.",
         )
         parser.add_argument(
             "--retries",
@@ -60,19 +60,28 @@ class Command(BaseCommand):
             help="Tentativas extras em erro transiente de lock no SQLite.",
         )
         parser.add_argument(
+            "--write-mode",
+            choices=["real", "dry-run"],
+            default="real",
+            help=(
+                "Controla escrita: real = grava no banco (altera estoque); "
+                "dry-run = exercita escrita com rollback (nao altera dados)."
+            ),
+        )
+        parser.add_argument(
             "--output",
             default="stress-report.html",
-            help="Caminho do relatório HTML de saída.",
+            help="Caminho do relatorio HTML de saida.",
         )
         parser.add_argument(
             "--json-output",
             default="stress-report.json",
-            help="Caminho do relatório JSON de saída.",
+            help="Caminho do relatorio JSON de saida.",
         )
         parser.add_argument(
             "--serve",
             action="store_true",
-            help="Sobe um servidor HTTP local para visualizar o relatório no navegador.",
+            help="Sobe um servidor HTTP local para visualizar o relatorio no navegador.",
         )
         parser.add_argument(
             "--port",
@@ -91,6 +100,7 @@ class Command(BaseCommand):
         ops_per_thread = options["ops_per_thread"]
         read_ratio = options["read_ratio"]
         retries = options["retries"]
+        write_mode = options["write_mode"]
         html_path = Path(options["output"]).resolve()
         json_path = Path(options["json_output"]).resolve()
         serve = options["serve"]
@@ -105,7 +115,7 @@ class Command(BaseCommand):
         variant_ids = list(ProductVariant.objects.values_list("id", flat=True))
         if not variant_ids:
             raise CommandError(
-                "Não há itens em ProductVariant para testar. Rode seed antes (ex: manage.py seed_products)."
+                "Nao ha itens em ProductVariant para testar. Rode seed antes (ex: manage.py seed_products)."
             )
 
         self.stdout.write(
@@ -167,7 +177,7 @@ class Command(BaseCommand):
             with transaction.atomic():
                 updated = ProductVariant.objects.filter(id=variant_id).update(stock=F("stock") + units)
                 if updated != 1:
-                    raise RuntimeError(f"Variant {variant_id} não encontrado para update.")
+                    raise RuntimeError(f"Variant {variant_id} nao encontrado para update.")
                 StockMovement.objects.create(
                     variant_id=variant_id,
                     movement_type=StockMovement.MOVEMENT_RECEIVE,
@@ -177,6 +187,8 @@ class Command(BaseCommand):
                     notes="stress-test",
                     created_by=None,
                 )
+                if write_mode == "dry-run":
+                    transaction.set_rollback(True)
 
         read_ops = [("read_catalog", op_read_catalog), ("read_metrics", op_read_metrics), ("read_movements", op_read_movements)]
 
@@ -233,6 +245,7 @@ class Command(BaseCommand):
                 "target_operations": threads * ops_per_thread,
                 "read_ratio": read_ratio,
                 "retries": retries,
+                "write_mode": write_mode,
             },
             "results": {
                 "total_duration_seconds": round(total_duration, 3),
@@ -265,7 +278,7 @@ class Command(BaseCommand):
         html_path.parent.mkdir(parents=True, exist_ok=True)
         html_path.write_text(self._build_html(report), encoding="utf-8")
 
-        self.stdout.write(self.style.SUCCESS("Stress test concluído."))
+        self.stdout.write(self.style.SUCCESS("Stress test concluido."))
         self.stdout.write(f"HTML: {html_path}")
         self.stdout.write(f"JSON: {json_path}")
         self.stdout.write(
@@ -466,6 +479,10 @@ class Command(BaseCommand):
     const totalSuccess = report.results.success_count || 0;
     const totalErrors = report.results.error_count || 0;
     const latency = report.results.latency_ms || {{}};
+    const durationSec = Number(report.results.total_duration_seconds || 0);
+    const durationMin = durationSec / 60;
+    const durationMM = Math.floor(durationSec / 60);
+    const durationSS = Math.round(durationSec % 60).toString().padStart(2, "0");
 
     const summary = [
       ["Threads", report.settings.threads, "Concorrencia do teste"],
@@ -479,6 +496,7 @@ class Command(BaseCommand):
       ["P99 (ms)", latency.p99, "99% das ops <= este tempo"],
       ["Max (ms)", latency.max, "Pior caso observado"],
       ["Duracao (s)", report.results.total_duration_seconds, "Tempo total do teste"],
+      ["Duracao (min)", durationMin.toFixed(2), `Aprox. ${{durationMM}}:${{durationSS}}`],
       ["Tentativas", report.settings.retries, "Retry para lock transiente"],
     ];
     const summaryNode = document.getElementById("summary");
@@ -636,7 +654,7 @@ class Command(BaseCommand):
         handler = partial(SimpleHTTPRequestHandler, directory=str(report_dir))
         server = ThreadingHTTPServer(("127.0.0.1", port), handler)
         url = f"http://127.0.0.1:{port}/{relative_name}"
-        self.stdout.write(self.style.NOTICE(f"Visualização: {url}"))
+        self.stdout.write(self.style.NOTICE(f"Visualizacao: {url}"))
         self.stdout.write("Pressione Ctrl+C para encerrar o servidor local.")
         if open_browser:
             webbrowser.open(url, new=2)
@@ -646,3 +664,4 @@ class Command(BaseCommand):
             self.stdout.write("\nServidor encerrado.")
         finally:
             server.server_close()
+

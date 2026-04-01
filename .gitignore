@@ -3,6 +3,11 @@
 __pycache__/
 *.pyc
 db.sqlite3
+db.sqlite3-shm
+db.sqlite3-wal
+.env
 
 frontend/node_modules/
 frontend/dist/
+stress-report.html
+stress-report.json
