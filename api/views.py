@@ -1,4 +1,5 @@
 ﻿import re
+import unicodedata
 from django.contrib.auth.models import Group
 
 from django.db import transaction
@@ -96,6 +97,21 @@ BEER_BRANDS = {
     "stella artois",
 }
 
+QUERY_SYNONYMS = {
+    "zero": ["sem", "acucar", "lactose"],
+    "sem": ["zero"],
+    "acucar": ["zero", "diet"],
+    "diet": ["zero", "sem", "acucar"],
+    "lactose": ["zero"],
+    "garrafao": ["agua", "mineral", "20l", "10l"],
+    "açucar": ["acucar"],
+    "açai": ["acai", "acai"],
+    "acai": ["açai", "açai"],
+    "refri": ["refrigerante"],
+    "refrigerante": ["refri"],
+    "pipoca": ["microondas", "milho"],
+}
+
 ACTIVE_PACKAGES_PREFETCH = Prefetch(
     "packages",
     queryset=ProductPackage.objects.filter(is_active=True).only(
@@ -120,6 +136,12 @@ def _signed_units(movement_type, units):
     if movement_type in {StockMovement.MOVEMENT_SELL, StockMovement.MOVEMENT_LOSS}:
         return -units
     return units
+
+
+def _ptbr_sort_key(value):
+    text = str(value or "").strip().casefold()
+    normalized = unicodedata.normalize("NFD", text)
+    return "".join(char for char in normalized if unicodedata.category(char) != "Mn")
 
 
 def _resolve_units(payload, variant):
@@ -157,6 +179,101 @@ def _query_tokens(value: str) -> list[str]:
     return [token for token in text.split(" ") if token]
 
 
+def _expand_query_tokens(tokens: list[str]) -> list[str]:
+    expanded = []
+    seen = set()
+    for token in tokens:
+        if token not in seen:
+            expanded.append(token)
+            seen.add(token)
+        for extra in QUERY_SYNONYMS.get(token, []):
+            normalized_extra = _normalize_for_search(extra)
+            if not normalized_extra or normalized_extra in seen:
+                continue
+            expanded.append(normalized_extra)
+            seen.add(normalized_extra)
+    return expanded
+
+
+def _distance_lte_one(a: str, b: str) -> bool:
+    if a == b:
+        return True
+    if abs(len(a) - len(b)) > 1:
+        return False
+    i = 0
+    j = 0
+    edits = 0
+    while i < len(a) and j < len(b):
+        if a[i] == b[j]:
+            i += 1
+            j += 1
+            continue
+        edits += 1
+        if edits > 1:
+            return False
+        if len(a) > len(b):
+            i += 1
+        elif len(b) > len(a):
+            j += 1
+        else:
+            i += 1
+            j += 1
+    if i < len(a) or j < len(b):
+        edits += 1
+    return edits <= 1
+
+
+def _token_matches_haystack(token: str, haystack_tokens: list[str]) -> bool:
+    for candidate in haystack_tokens:
+        if token == candidate:
+            return True
+        if token in candidate or candidate in token:
+            return True
+        if _distance_lte_one(token, candidate):
+            return True
+    return False
+
+
+def _score_catalog_entry(query_text: str, query_tokens: list[str], item: dict) -> int:
+    product = _normalize_for_search(item.get("product_name") or "")
+    brand = _normalize_for_search(item.get("brand") or "")
+    category = _normalize_for_search(item.get("category") or "")
+    variant = _normalize_for_search(item.get("variant_label") or "")
+    size = _normalize_for_search(item.get("package_size") or "")
+    source = _normalize_for_search(item.get("source") or "")
+    haystack = " ".join([product, brand, category, variant, size]).strip()
+    haystack_tokens = [token for token in haystack.split(" ") if token]
+
+    score = 0
+    if query_text:
+        if product == query_text:
+            score += 220
+        if brand == query_text:
+            score += 160
+        if variant == query_text:
+            score += 130
+        if product.startswith(query_text):
+            score += 95
+        if brand.startswith(query_text):
+            score += 80
+        if query_text in product:
+            score += 70
+        if query_text in variant:
+            score += 55
+        if query_text in haystack:
+            score += 30
+
+    for token in query_tokens:
+        if _token_matches_haystack(token, haystack_tokens):
+            score += 18
+
+    if source == "estoque_local":
+        score += 24
+    elif source == "catalogo_local_br":
+        score += 16
+    return score
+
+
 def _size_sort_tuple(value: str):
     text = _normalize_for_search(value)
     match = re.search(r"(\d+(?:\.\d+)?)\s*(kg|g|l|ml|un)$", text)
@@ -182,7 +299,8 @@ def _search_stock_catalog(query: str, department: str = "", limit: int = CATALOG
     if len(term) < 2:
         return []
     normalized_term = _normalize_for_search(term)
-    tokens = _query_tokens(term)
+    base_tokens = _query_tokens(term)
+    tokens = _expand_query_tokens(base_tokens)
 
     queryset = (
         ProductVariant.objects.select_related("product", "product__category")
@@ -191,17 +309,6 @@ def _search_stock_catalog(query: str, department: str = "", limit: int = CATALOG
     )
     if department:
         queryset = queryset.filter(product__departments__name__iexact=department.strip())
-    if tokens:
-        token_filter = Q()
-        for token in tokens:
-            token_filter &= (
-                Q(product__name__icontains=token)
-                | Q(product__brand__icontains=token)
-                | Q(product__category__name__icontains=token)
-                | Q(variant_label__icontains=token)
-                | Q(package_size__icontains=token)
-            )
-        queryset = queryset.filter(token_filter)
 
     queryset = queryset.distinct()
 
@@ -210,7 +317,9 @@ def _search_stock_catalog(query: str, department: str = "", limit: int = CATALOG
     def _brand_matches(brand_value: str, allowed_terms: set[str]) -> bool:
         return any(term in brand_value for term in allowed_terms)
 
-    scan_limit = max(limit * 4, 300)
+    # We intentionally scan in Python to support accent-insensitive matching
+    # (e.g. "aço" finds "Aco"/"Aço") regardless of database collation.
+    scan_limit = max(limit * 20, 10000)
     for variant in queryset.order_by("-updated_at")[:scan_limit]:
         normalized_product = _normalize_for_search(variant.product.name)
         normalized_brand = _normalize_for_search(variant.product.brand)
@@ -227,7 +336,8 @@ def _search_stock_catalog(query: str, department: str = "", limit: int = CATALOG
                 normalized_size,
             ]
         ).strip()
-        if tokens and not all(token in haystack for token in tokens):
+        haystack_tokens = [token for token in haystack.split(" ") if token]
+        if base_tokens and not all(_token_matches_haystack(token, haystack_tokens) for token in base_tokens):
             continue
 
         # For high-intent beverage queries, prioritize exact product families.
@@ -279,11 +389,20 @@ def _search_stock_catalog(query: str, department: str = "", limit: int = CATALOG
                 "package_name": default_package.name if default_package else "UNIDADE",
                 "package_units": default_package.units_per_package if default_package else 1,
                 "source": "estoque_local",
+                "_stock": variant.stock,
             }
         )
-        if len(items) >= limit:
-            break
-    return items
+    for item in items:
+        item["_score"] = _score_catalog_entry(normalized_term, tokens, item)
+    items.sort(
+        key=lambda item: (
+            item.get("_score", 0),
+            item.get("_stock", 0),
+            -_size_sort_tuple(item.get("package_size") or "")[0],
+        ),
+        reverse=True,
+    )
+    return items[:limit]
 
 
 def _resolve_product_base(category, product_name, brand):
@@ -492,6 +611,11 @@ class ProductVariantViewSet(viewsets.ModelViewSet):
         "created_at",
     ]
     ordering = ["product__name", "product__brand", "variant_label", "package_size"]
+    accent_insensitive_ordering_params = {
+        "",
+        "product__name,product__brand,variant_label,package_size",
+        "-product__name,-product__brand,-variant_label,-package_size",
+    }
 
     def get_queryset(self):
         queryset = super().get_queryset()
@@ -509,6 +633,33 @@ class ProductVariantViewSet(viewsets.ModelViewSet):
         if is_active in {"true", "false"}:
             queryset = queryset.filter(is_active=(is_active == "true"))
         return queryset.distinct()
+
+    def list(self, request, *args, **kwargs):
+        ordering_param = (request.query_params.get("ordering") or "").strip()
+        if ordering_param not in self.accent_insensitive_ordering_params:
+            return super().list(request, *args, **kwargs)
+
+        queryset = self.filter_queryset(self.get_queryset())
+        reverse = ordering_param.startswith("-")
+        items = list(queryset)
+        items.sort(
+            key=lambda variant: (
+                _ptbr_sort_key(variant.product.name),
+                _ptbr_sort_key(variant.product.brand),
+                _ptbr_sort_key(variant.variant_label),
+                _ptbr_sort_key(variant.package_size),
+                variant.id,
+            ),
+            reverse=reverse,
+        )
+
+        page = self.paginate_queryset(items)
+        if page is not None:
+            serializer = self.get_serializer(page, many=True)
+            return self.get_paginated_response(serializer.data)
+
+        serializer = self.get_serializer(items, many=True)
+        return Response(serializer.data)
 
 
 class ProductVariantChoicesView(APIView):
@@ -974,6 +1125,8 @@ class CatalogLookupView(APIView):
             )
 
         if len(query) >= 2:
+            query_text = _normalize_for_search(query)
+            query_tokens = _expand_query_tokens(_query_tokens(query))
             stock_items = _search_stock_catalog(
                 query,
                 department=department,
@@ -1011,20 +1164,33 @@ class CatalogLookupView(APIView):
                 if key in seen_keys:
                     continue
                 seen_keys.add(key)
+                score = _score_catalog_entry(query_text, query_tokens, item)
+                if item.get("source") == "estoque_local":
+                    score += 20
+                elif item.get("source") == "catalogo_local_br":
+                    score += 10
+                item["_score"] = score
                 merged_items.append(item)
             merged_items.sort(
                 key=lambda item: (
+                    item.get("_score", 0),
                     normalize_catalog_text(item.get("product_name") or ""),
-                    normalize_catalog_text(item.get("variant_label") or ""),
                     normalize_catalog_text(item.get("brand") or ""),
+                    normalize_catalog_text(item.get("variant_label") or ""),
                     _size_sort_tuple(item.get("package_size") or ""),
-                )
+                ),
+                reverse=True,
             )
+            for item in merged_items:
+                item.pop("_score", None)
+                item.pop("_stock", None)
             return Response(
                 {
                     "item": None,
                     "items": merged_items,
                     "meta": {
+                        "modo": "premium",
+                        "tokens_expandidos": query_tokens[:12],
                         "bluesoft_configurada": bluesoft_ready,
                         "resultados_estoque": stock_count,
                         "resultados_bluesoft": external_count,

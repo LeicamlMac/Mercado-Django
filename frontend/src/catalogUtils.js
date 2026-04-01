@@ -1,4 +1,4 @@
-export const STORAGE_KEY = "mercado_auth_tokens";
+﻿export const STORAGE_KEY = "mercado_auth_tokens";
 export const THEME_STORAGE_KEY = "mercado_theme";
 export const CATALOG_USAGE_STORAGE_KEY = "mercado_catalog_usage_v1";
 export const DEFAULT_ORDERING = "product__name,product__brand,variant_label,package_size";
@@ -7,8 +7,8 @@ export const ORDERING_OPTIONS = [
   { value: "product__name,product__brand,variant_label,package_size", label: "Produto (A-Z)" },
   { value: "-product__name,-product__brand,-variant_label,-package_size", label: "Produto (Z-A)" },
   { value: "-updated_at", label: "Atualizados recentemente" },
-  { value: "-price", label: "Maior preco" },
-  { value: "price", label: "Menor preco" },
+  { value: "-price", label: "Maior preÃ§o" },
+  { value: "price", label: "Menor preÃ§o" },
 ];
 
 export const STATUS_FILTER_OPTIONS = [
@@ -52,7 +52,7 @@ export const MOVIMENTO_LABEL = {
   SELL: "Venda",
   ADJUST: "Ajuste",
   LOSS: "Perda",
-  RETURN: "Devolucao",
+  RETURN: "DevoluÃ§Ã£o",
 };
 
 export const SETORES_PADRAO = [
@@ -85,6 +85,42 @@ export const EMPTY_CATALOG_META = {
 export const DEFAULT_VARIANT_LABEL = "Tradicional";
 export const FEIJAO_PRODUCT_TOKEN = "feij";
 export const FEIJAO_VARIANT_PRETO = "Preto";
+const ORTHOGRAPHY_SUBSTITUTIONS = [
+  [/Laticinios/gi, "Laticínios"],
+  [/Higienico/gi, "Higiênico"],
+  [/Acucar/gi, "Açúcar"],
+  [/Cafe/gi, "Café"],
+  [/Limao/gi, "Limão"],
+  [/Maracuja/gi, "Maracujá"],
+  [/Pao/gi, "Pão"],
+  [/Sabao em Po/gi, "Sabão em Pó"],
+  [/Sabao/gi, "Sabão"],
+  [/Agua Sanitaria/gi, "Água Sanitária"],
+  [/Agua/gi, "Água"],
+  [/Linguica/gi, "Linguiça"],
+  [/Anticaries/gi, "Anticáries"],
+  [/Sem Acucar/gi, "Sem Açúcar"],
+  [/Liquido/gi, "Líquido"],
+  [/Hidratacao/gi, "Hidratação"],
+  [/Reconstrucao/gi, "Reconstrução"],
+  [/Maca\b/gi, "Maçã"],
+  [/Acafrao/gi, "Açafrão"],
+  [/Acai/gi, "Açaí"],
+  [/\bAco\b/gi, "Aço"],
+  [/\bPacoca\b/gi, "Paçoca"],
+  [/\bMaco\b/gi, "Maço"],
+  [/Pao de Queijo/gi, "Pão de Queijo"],
+  [/Pao de Alho/gi, "Pão de Alho"],
+  [/Ovo de Pascoa/gi, "Ovo de Páscoa"],
+  [/\bCha\b/gi, "Chá"],
+  [/Cafe Soluvel/gi, "Café Solúvel"],
+  [/Bebe/gi, "Bebê"],
+  [/Farmacia/gi, "Farmácia"],
+  [/ElegÃª/gi, "Elege"],
+  [/Feijao-de-corda/gi, "Feijão-de-corda"],
+  [/Feijao/gi, "Feijão"],
+  [/Parboilizado/gi, "Parboilizado"],
+];
 
 export function normalizarTexto(value) {
   return (value || "")
@@ -98,31 +134,7 @@ export function corrigirOrtografiaUI(value) {
   let text = String(value || "").trim();
   if (!text) return "";
 
-  const substitutions = [
-    [/Laticinios/gi, "Laticinios"],
-    [/Higienico/gi, "Higienico"],
-    [/Acucar/gi, "Acucar"],
-    [/Cafe/gi, "Cafe"],
-    [/Limao/gi, "Limao"],
-    [/Maracuja/gi, "Maracuja"],
-    [/Pao/gi, "Pao"],
-    [/Sabao em Po/gi, "Sabao em Po"],
-    [/Sabao/gi, "Sabao"],
-    [/Agua Sanitaria/gi, "Agua Sanitaria"],
-    [/Agua/gi, "Agua"],
-    [/Linguica/gi, "Linguica"],
-    [/Anticaries/gi, "Anticaries"],
-    [/Sem Acucar/gi, "Sem Acucar"],
-    [/Liquido/gi, "Liquido"],
-    [/Hidratacao/gi, "Hidratacao"],
-    [/Reconstrucao/gi, "Reconstrucao"],
-    [/Maca\b/gi, "Maca"],
-    [/Elegê/gi, "Elege"],
-    [/Feijao-de-corda/gi, "Feijao-de-corda"],
-    [/Feijao/gi, "Feijao"],
-    [/Parboilizado/gi, "Parboilizado"],
-  ];
-  for (const [pattern, replacement] of substitutions) {
+  for (const [pattern, replacement] of ORTHOGRAPHY_SUBSTITUTIONS) {
     text = text.replace(pattern, replacement);
   }
   return text;
@@ -253,3 +265,4 @@ export async function requestJson(path, options = {}) {
 
   return body;
 }
+

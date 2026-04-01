@@ -142,6 +142,35 @@ class CatalogApiTests(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.data["count"], 1)
 
+    def test_items_list_ordering_az_ignores_accents_and_cedilha(self):
+        self.authenticate(self.manager)
+        category = self.category
+        department = self.department
+        entries = [
+            ("Ameixa", "Marca A"),
+            ("Açafrão", "Marca B"),
+            ("Açaí", "Marca C"),
+            ("Banana", "Marca D"),
+        ]
+        for name, brand in entries:
+            base = ProductBase.objects.create(category=category, name=name, brand=brand)
+            base.departments.add(department)
+            ProductVariant.objects.create(
+                product=base,
+                variant_label="Tradicional",
+                package_size="1KG",
+                price="5.00",
+                stock=3,
+            )
+
+        response = self.client.get(
+            reverse("items-list"),
+            {"ordering": "product__name,product__brand,variant_label,package_size"},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        names = [item["product_name"] for item in response.data["results"]]
+        self.assertEqual(names, ["Açafrão", "Açaí", "Ameixa", "Arroz", "Banana"])
+
     def test_quick_entry_reuses_existing_variant_without_category(self):
         self.authenticate(self.manager)
         response = self._post_json(
@@ -222,3 +251,26 @@ class CatalogApiTests(APITestCase):
         }
         self.assertIn(("Coca-Cola", "Cola"), labels)
         self.assertNotIn(("Coca-Cola", "Guarana"), labels)
+
+    def test_catalog_lookup_premium_handles_small_typos(self):
+        utilidades, _ = Category.objects.get_or_create(name="Utilidades")
+        util_dep, _ = Department.objects.get_or_create(name="Utilidades")
+        base = ProductBase.objects.create(
+            category=utilidades,
+            name="Isqueiro",
+            brand="Bic",
+        )
+        base.departments.add(util_dep)
+        ProductVariant.objects.create(
+            product=base,
+            variant_label="Descartavel",
+            package_size="1UN",
+            price="7.90",
+            stock=30,
+        )
+
+        self.authenticate(self.manager)
+        response = self.client.get(reverse("catalog-lookup"), {"q": "isqueiroo"})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        products = [item.get("product_name") for item in response.data.get("items", [])]
+        self.assertIn("Isqueiro", products)

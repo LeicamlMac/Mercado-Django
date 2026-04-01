@@ -6,7 +6,7 @@ body {
   margin: 0;
   min-height: 100vh;
   background:
-    radial-gradient(circle at 15% 15%, #cfe9e2 0, transparent 32%),
-    radial-gradient(circle at 85% 10%, #e8f4ef 0, transparent 28%),
-    #f6fbf9;
+    radial-gradient(circle at 15% 15%, #dbe8ff 0, transparent 32%),
+    radial-gradient(circle at 85% 10%, #edf4ff 0, transparent 28%),
+    #f4f8ff;
 }

@@ -32,6 +32,10 @@ import {
   tamanhoOrdenacao,
   uniqueNonEmpty,
 } from "./catalogUtils";
+import {
+  buildSeasonalCampaigns,
+  getCurrentMonthLabel,
+} from "./seasonalCampaigns";
 
 function ThemeToggleButton({ theme, onToggle }) {
   return (
@@ -72,6 +76,8 @@ function App() {
   const [setores, setSetores] = useState([]);
   const [search, setSearch] = useState("");
   const [searchApplied, setSearchApplied] = useState("");
+  const [activeSeasonalCampaignId, setActiveSeasonalCampaignId] = useState("");
+  const [activeSeasonalTerms, setActiveSeasonalTerms] = useState([]);
   const [statusFilter, setStatusFilter] = useState("all");
   const [ordering, setOrdering] = useState(DEFAULT_ORDERING);
   const [page, setPage] = useState(1);
@@ -102,6 +108,16 @@ function App() {
   const [movimentosLimit, setMovimentosLimit] = useState("12");
   const [catalogUsageHistory, setCatalogUsageHistory] = useState(() =>
     loadCatalogUsageHistory()
+  );
+  const currentMonth = useMemo(() => new Date().getMonth() + 1, []);
+  const currentMonthLabel = useMemo(() => getCurrentMonthLabel(), []);
+  const seasonalCampaigns = useMemo(
+    () => buildSeasonalCampaigns(currentMonth),
+    [currentMonth]
+  );
+  const activeSeasonalCampaign = useMemo(
+    () => seasonalCampaigns.find((campaign) => campaign.id === activeSeasonalCampaignId) || null,
+    [seasonalCampaigns, activeSeasonalCampaignId]
   );
 
   useEffect(() => {
@@ -145,6 +161,38 @@ function App() {
     },
     [resetCatalogAssistant]
   );
+
+  const applySeasonalFilter = useCallback((campaign) => {
+    const terms = (campaign?.keywords || []).filter(Boolean);
+    const term = terms[0] || "";
+    if (!term) return;
+    setPage(1);
+    setSetorAtivoId("all");
+    setActiveSeasonalCampaignId(campaign.id);
+    setActiveSeasonalTerms(terms);
+    setSearch(term);
+    setSearchApplied(term);
+  }, []);
+
+  const deactivateSeasonalFilter = useCallback(() => {
+    setActiveSeasonalCampaignId("");
+    setActiveSeasonalTerms([]);
+  }, []);
+
+  const applySeasonalTerm = useCallback((term) => {
+    const cleaned = String(term || "").trim();
+    if (!cleaned) return;
+    setPage(1);
+    setSearch(cleaned);
+    setSearchApplied(cleaned);
+  }, []);
+
+  const clearSeasonalFilter = useCallback(() => {
+    setPage(1);
+    deactivateSeasonalFilter();
+    setSearch("");
+    setSearchApplied("");
+  }, [deactivateSeasonalFilter]);
 
   const regraProdutoAtual = useMemo(() => {
     const nomeProduto = normalizarTexto(quickForm.product_name);
@@ -1276,6 +1324,49 @@ function App() {
         </div>
       </section>
 
+      <section className="panel seasonal-panel">
+        <div className="toolbar">
+          <h2>Sazonais e festividades</h2>
+          <span className="muted">Mês atual: {currentMonthLabel}</span>
+        </div>
+        <p className="hint">
+          Clique em uma campanha para preencher a busca com os itens da época e ajustar seu mix rapidamente.
+        </p>
+        <div className="seasonal-grid">
+          {seasonalCampaigns.map((campaign) => (
+            <article
+              key={campaign.id}
+              className={
+                campaign.id === activeSeasonalCampaignId
+                  ? "seasonal-card selecionado"
+                  : campaign.activeNow
+                    ? "seasonal-card ativo"
+                    : "seasonal-card"
+              }
+            >
+              <strong>{campaign.name}</strong>
+              <p>{campaign.description}</p>
+              <div className="seasonal-keywords">
+                {campaign.keywords.slice(0, 5).map((keyword) => (
+                  <span key={`${campaign.id}-${keyword}`} className="catalog-usage-badge">
+                    {corrigirOrtografiaUI(keyword)}
+                  </span>
+                ))}
+              </div>
+              <div className="actions">
+                <button
+                  type="button"
+                  className="ghost"
+                  onClick={() => applySeasonalFilter(campaign)}
+                >
+                  {campaign.id === activeSeasonalCampaignId ? "Campanha aplicada" : "Filtrar campanha"}
+                </button>
+              </div>
+            </article>
+          ))}
+        </div>
+      </section>
+
       {canWrite ? (
         <section className="panel">
           <h2>Entrada rápida (cria ou repõe automaticamente)</h2>
@@ -1665,6 +1756,9 @@ function App() {
               placeholder="Buscar por produto, marca, tipo..."
               value={search}
               onChange={(event) => {
+                if (activeSeasonalCampaignId) {
+                  deactivateSeasonalFilter();
+                }
                 setSearch(event.target.value);
               }}
             />
@@ -1690,6 +1784,36 @@ function App() {
             </select>
           </div>
         </div>
+        {activeSeasonalCampaign ? (
+          <div className="seasonal-active-banner">
+            <div>
+              <strong>Filtro sazonal ativo: {activeSeasonalCampaign.name}</strong>
+              <p>Busca atual: <strong>{searchApplied || "-"}</strong>.</p>
+              <p>
+                {loading
+                  ? "Atualizando resultados..."
+                  : items.length
+                    ? `Resultados na página: ${items.length}.`
+                    : "Nenhum resultado para esse termo. Tente outro termo da campanha."}
+              </p>
+              <div className="seasonal-term-chips">
+                {activeSeasonalTerms.map((term) => (
+                  <button
+                    key={`season-term-${term}`}
+                    type="button"
+                    className={normalizarTexto(searchApplied) === normalizarTexto(term) ? "seasonal-chip ativo" : "seasonal-chip"}
+                    onClick={() => applySeasonalTerm(term)}
+                  >
+                    {corrigirOrtografiaUI(term)}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <button type="button" className="ghost" onClick={clearSeasonalFilter}>
+              Limpar filtro sazonal
+            </button>
+          </div>
+        ) : null}
 
         {loading && !items.length ? <p>Carregando itens...</p> : null}
         {!loading && !items.length ? <p>Nenhum item encontrado.</p> : null}
@@ -1803,27 +1927,29 @@ function App() {
           </div>
         ) : null}
 
-        <div className="pager">
-          <button
-            type="button"
-            className="ghost"
-            disabled={page <= 1}
-            onClick={() => setPage((prev) => prev - 1)}
-          >
-            Anterior
-          </button>
-          <span>
-            Página {page} de {pageCount}
-          </span>
-          <button
-            type="button"
-            className="ghost"
-            disabled={page >= pageCount}
-            onClick={() => setPage((prev) => prev + 1)}
-          >
-            Próxima
-          </button>
-        </div>
+        {items.length ? (
+          <div className="pager">
+            <button
+              type="button"
+              className="ghost"
+              disabled={page <= 1}
+              onClick={() => setPage((prev) => prev - 1)}
+            >
+              Anterior
+            </button>
+            <span>
+              Página {page} de {pageCount}
+            </span>
+            <button
+              type="button"
+              className="ghost"
+              disabled={page >= pageCount}
+              onClick={() => setPage((prev) => prev + 1)}
+            >
+              Próxima
+            </button>
+          </div>
+        ) : null}
       </section>
 
       <section className="panel">

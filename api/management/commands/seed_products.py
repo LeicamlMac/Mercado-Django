@@ -18,7 +18,7 @@ from api.services.taxonomy import resolve_category_name
 
 class Command(BaseCommand):
     help = "Seed a large and realistic atacarejo-style catalog for local development."
-    TARGET_VARIANTS = 6000
+    TARGET_VARIANTS = 10000
     LEGACY_PRODUCT_RENAMES = (
         ("Bovina", "Carne Bovina"),
         ("Suina", "Carne Suina"),
@@ -71,15 +71,15 @@ class Command(BaseCommand):
             "departments": ["Bebidas"],
             "product": "Refrigerante",
             "brands": ["Coca-Cola", "Guarana Antarctica", "Fanta", "Pepsi", "Sprite", "Kuat", "Dolly"],
-            "variants": ["Cola", "Guarana", "Laranja", "Limao", "Uva", "Zero", "Sem Acucar"],
+            "variants": ["Cola", "Guarana", "Laranja", "Limao", "Uva", "Cola Zero", "Guarana Zero", "Laranja Zero", "Limao Zero", "Uva Zero", "Sem Acucar"],
             "brand_variants": {
-                "Coca-Cola": ["Cola", "Zero", "Sem Acucar"],
-                "Pepsi": ["Cola", "Zero", "Sem Acucar"],
-                "Guarana Antarctica": ["Guarana", "Zero", "Sem Acucar"],
-                "Kuat": ["Guarana", "Zero", "Sem Acucar"],
-                "Sprite": ["Limao", "Zero", "Sem Acucar"],
-                "Fanta": ["Laranja", "Uva", "Limao", "Zero"],
-                "Dolly": ["Cola", "Guarana", "Laranja", "Uva", "Zero"],
+                "Coca-Cola": ["Cola", "Cola Zero", "Sem Acucar"],
+                "Pepsi": ["Cola", "Cola Zero", "Sem Acucar"],
+                "Guarana Antarctica": ["Guarana", "Guarana Zero", "Sem Acucar"],
+                "Kuat": ["Guarana", "Guarana Zero", "Sem Acucar"],
+                "Sprite": ["Limao", "Limao Zero", "Sem Acucar"],
+                "Fanta": ["Laranja", "Uva", "Limao", "Laranja Zero", "Uva Zero", "Limao Zero"],
+                "Dolly": ["Cola", "Guarana", "Laranja", "Uva", "Cola Zero", "Guarana Zero", "Laranja Zero", "Uva Zero"],
             },
             "sizes": ["200ML", "350ML", "600ML", "1L", "1.5L", "2L", "3L"],
         },
@@ -106,7 +106,14 @@ class Command(BaseCommand):
             "product": "Agua",
             "brands": ["Crystal", "Minalba", "Bonafont", "Indaia", "Lindoya"],
             "variants": ["Sem Gas", "Com Gas", "Saborizada"],
-            "sizes": ["350ML", "500ML", "1L", "1.5L", "5L"],
+            "sizes": ["350ML", "500ML", "1L", "1.5L", "5L", "10L", "20L"],
+        },
+        {
+            "departments": ["Bebidas"],
+            "product": "Agua Mineral Garrafao",
+            "brands": ["Crystal", "Minalba", "Indaia", "Lindoya", "Acquissima"],
+            "variants": ["Sem Gas", "Com Gas"],
+            "sizes": ["10L", "20L"],
         },
         {
             "departments": ["Laticinios", "Bebidas"],
@@ -210,6 +217,20 @@ class Command(BaseCommand):
             "sizes": ["1KG", "2KG", "5KG"],
         },
         {
+            "departments": ["Carnes", "Congelados"],
+            "product": "Peru Inteiro",
+            "brands": ["Sadia", "Perdigao", "Seara", "Aurora"],
+            "variants": ["Tradicional", "Temperado", "Natalino"],
+            "sizes": ["3KG", "4KG", "5KG", "6KG", "7KG"],
+        },
+        {
+            "departments": ["Carnes", "Congelados"],
+            "product": "Chester Inteiro",
+            "brands": ["Perdigao", "Sadia", "Seara"],
+            "variants": ["Tradicional", "Temperado", "Natalino"],
+            "sizes": ["3KG", "4KG", "5KG", "6KG", "7KG"],
+        },
+        {
             "departments": ["Carnes"],
             "product": "Carne Bovina",
             "brands": ["Friboi", "Minerva", "Maturatta", "Swift", "Seara"],
@@ -277,6 +298,7 @@ class Command(BaseCommand):
             "product": "Polpa de Fruta",
             "brands": ["Brasfrut", "De Marchi", "Mais Fruta", "Fruta Polpa", "Da Fruta"],
             "variants": [
+                "Acai",
                 "Acerola",
                 "Caju",
                 "Manga",
@@ -314,7 +336,18 @@ class Command(BaseCommand):
             "departments": ["Mercearia"],
             "product": "Molho de Tomate",
             "brands": ["Quero", "Fugini", "Elefante", "Pomarola", "Predilecta"],
-            "variants": ["Tradicional", "Manjericao", "Pizza", "Bolonhesa", "Sugo"],
+            "variants": [
+                "Tradicional",
+                "Manjericao",
+                "Pizza",
+                "Bolonhesa",
+                "Sugo",
+                "Napolitano",
+                "Alho e Oleo",
+                "Arrabbiata",
+                "Quatro Queijos",
+                "Rustico",
+            ],
             "sizes": ["300G", "340G", "520G", "1KG"],
         },
         {
@@ -349,14 +382,14 @@ class Command(BaseCommand):
             "departments": ["Laticinios"],
             "product": "Manteiga",
             "brands": ["Itambe", "Aviacao", "Vigor", "President", "Elegue"],
-            "variants": ["Com Sal", "Sem Sal", "Extra"],
+            "variants": ["Com Sal", "Sem Sal", "Extra", "Zero Lactose"],
             "sizes": ["200G", "500G"],
         },
         {
             "departments": ["Laticinios"],
             "product": "Margarina",
             "brands": ["Qualy", "Delicia", "Claybom", "Doriana", "Becel"],
-            "variants": ["Com Sal", "Sem Sal", "Light"],
+            "variants": ["Com Sal", "Sem Sal", "Light", "Zero Lactose"],
             "sizes": ["250G", "500G", "1KG"],
         },
         {
@@ -377,7 +410,7 @@ class Command(BaseCommand):
             "departments": ["Frios"],
             "product": "Mussarela Fatiada",
             "brands": ["Sadia", "Tirolez", "Polenghi", "Italac", "Vigor"],
-            "variants": ["Tradicional", "Light", "Lanche"],
+            "variants": ["Tradicional", "Light", "Zero Lactose"],
             "sizes": ["150G", "200G", "500G", "1KG"],
         },
         {
@@ -391,8 +424,15 @@ class Command(BaseCommand):
             "departments": ["Padaria"],
             "product": "Bolo Pronto",
             "brands": ["Bauducco", "Panco", "Ana Maria", "Visconti", "Casa Suica"],
-            "variants": ["Chocolate", "Cenoura", "Laranja", "Fuba", "Milho"],
+            "variants": ["Chocolate", "Cenoura", "Laranja", "Fuba", "Milho", "Formigueiro", "Limao", "Baunilha"],
             "sizes": ["250G", "400G", "500G", "1KG"],
+        },
+        {
+            "departments": ["Padaria"],
+            "product": "Bolo Confeitado",
+            "brands": ["Casa Suica", "Sodie", "Panco", "Bauducco", "Doce Sabor"],
+            "variants": ["Chocolate", "Morango", "Prestigio", "Ninho", "Abacaxi", "Formigueiro"],
+            "sizes": ["500G", "1KG", "1.5KG", "2KG", "3KG"],
         },
         {
             "departments": ["Limpeza"],
@@ -434,21 +474,21 @@ class Command(BaseCommand):
             "product": "Limao",
             "brands": ["Hortifruti"],
             "variants": ["Taiti", "Siciliano", "Galego"],
-            "sizes": ["500G", "1KG", "2KG"],
+            "sizes": ["1UN", "500G", "1KG", "2KG"],
         },
         {
             "departments": ["Hortifruti"],
             "product": "Laranja",
             "brands": ["Hortifruti"],
             "variants": ["Pera", "Lima", "Bahia"],
-            "sizes": ["500G", "1KG", "2KG", "5KG"],
+            "sizes": ["1UN", "500G", "1KG", "2KG", "5KG"],
         },
         {
             "departments": ["Hortifruti"],
             "product": "Maca",
             "brands": ["Hortifruti"],
             "variants": ["Gala", "Fuji", "Verde"],
-            "sizes": ["500G", "1KG", "2KG"],
+            "sizes": ["1UN", "500G", "1KG", "2KG"],
         },
         {
             "departments": ["Hortifruti"],
@@ -484,6 +524,370 @@ class Command(BaseCommand):
             "brands": ["Hortifruti"],
             "variants": ["In Natura", "Baby"],
             "sizes": ["500G", "1KG", "2KG"],
+        },
+        {
+            "departments": ["Doces"],
+            "product": "Chocolate em Barra",
+            "brands": ["Lacta", "Garoto", "Nestle", "Hersheys", "Arcor", "Cacau Show"],
+            "variants": ["Ao Leite", "Meio Amargo", "Amargo", "Branco", "Avela", "Cookies", "Zero Acucar"],
+            "sizes": ["80G", "90G", "100G", "120G"],
+        },
+        {
+            "departments": ["Doces"],
+            "product": "Bombom",
+            "brands": ["Lacta", "Garoto", "Nestle", "Arcor", "Ferrero"],
+            "variants": ["Sortido", "Chocolate", "Coco", "Amendoim", "Avela", "Trufado"],
+            "sizes": ["90G", "120G", "250G", "500G"],
+        },
+        {
+            "departments": ["Doces"],
+            "product": "Bala e Goma",
+            "brands": ["Fini", "Arcor", "Erlan", "Dori", "Haribo"],
+            "variants": ["Morango", "Uva", "Tutti Frutti", "Azedinha", "Menta", "Sortida"],
+            "sizes": ["30G", "70G", "100G", "500G"],
+        },
+        {
+            "departments": ["Bebidas"],
+            "product": "Cerveja",
+            "brands": ["Skol", "Brahma", "Antarctica", "Heineken", "Amstel", "Budweiser", "Stella Artois"],
+            "variants": ["Pilsen", "Puro Malte", "Lager", "Sem Alcool", "Long Neck", "Premium"],
+            "sizes": ["269ML", "350ML", "473ML", "600ML", "1L", "5L"],
+        },
+        {
+            "departments": ["Bebidas"],
+            "product": "Energetico",
+            "brands": ["Red Bull", "Monster", "Fusion", "Tnt", "Baly"],
+            "variants": ["Original", "Zero", "Manga", "Melancia", "Tropical"],
+            "sizes": ["250ML", "269ML", "350ML", "473ML"],
+        },
+        {
+            "departments": ["Bebidas"],
+            "product": "Cha Gelado",
+            "brands": ["Leao", "Feel Good", "Del Valle", "Mate Leao", "Dr Oetker"],
+            "variants": ["Limao", "Pessego", "Mate", "Frutas Vermelhas", "Zero"],
+            "sizes": ["300ML", "450ML", "1L", "1.5L"],
+        },
+        {
+            "departments": ["Pet Shop"],
+            "product": "Racao para Cao",
+            "brands": ["Pedigree", "Golden", "Premier", "Magnus", "Dog Chow", "Gran Plus"],
+            "variants": ["Adulto", "Filhote", "Senior", "Racas Pequenas", "Racas Medias", "Racas Grandes"],
+            "sizes": ["1KG", "3KG", "10KG", "15KG"],
+        },
+        {
+            "departments": ["Pet Shop"],
+            "product": "Racao para Gato",
+            "brands": ["Whiskas", "Gran Plus", "Golden", "Premier", "Cat Chow"],
+            "variants": ["Adulto", "Filhote", "Castrado", "Pelagem", "Controle de Peso"],
+            "sizes": ["500G", "1KG", "3KG", "10KG"],
+        },
+        {
+            "departments": ["Pet Shop"],
+            "product": "Areia Higienica",
+            "brands": ["Pipicat", "Katbom", "Meau", "Procao", "Viva Verde"],
+            "variants": ["Tradicional", "Lavanda", "Sem Perfume", "Ultra Fina"],
+            "sizes": ["2KG", "4KG", "12KG"],
+        },
+        {
+            "departments": ["Bebe"],
+            "product": "Fralda Descartavel",
+            "brands": ["Pampers", "Huggies", "MamyPoko", "Turma da Monica", "Cremer"],
+            "variants": ["RN", "P", "M", "G", "XG", "XXG", "Noturna"],
+            "sizes": ["20UN", "30UN", "50UN", "80UN"],
+        },
+        {
+            "departments": ["Bebe"],
+            "product": "Lenco Umedecido",
+            "brands": ["Huggies", "Pampers", "Johnsons", "Turma da Monica", "Granado"],
+            "variants": ["Suave", "Sem Perfume", "Aloe Vera", "Hidrata"],
+            "sizes": ["48UN", "96UN", "120UN", "192UN"],
+        },
+        {
+            "departments": ["Farmacia"],
+            "product": "Analgesico",
+            "brands": ["Dorflex", "Neosaldina", "Novalgina", "Tylenol", "Advil"],
+            "variants": ["Comprimido", "Capsula", "Gotas", "Infantil", "Rapida Acao"],
+            "sizes": ["10UN", "20UN", "30UN"],
+        },
+        {
+            "departments": ["Farmacia"],
+            "product": "Vitamina C",
+            "brands": ["Cebion", "Redoxon", "Lavitan", "Equaliv", "Sundown"],
+            "variants": ["Comprimido", "Efervescente", "Gotas", "Imunidade"],
+            "sizes": ["10UN", "30UN", "60UN"],
+        },
+        {
+            "departments": ["Utilidades"],
+            "product": "Saco de Lixo",
+            "brands": ["Embalixo", "Sanremo", "Condor", "Dover Roll", "Totalplast"],
+            "variants": ["15L", "30L", "50L", "100L"],
+            "sizes": ["20UN", "30UN", "50UN", "100UN"],
+        },
+        {
+            "departments": ["Utilidades"],
+            "product": "Papel Aluminio",
+            "brands": ["Wyda", "Bompack", "Assolan", "Life Clean", "Dover Roll"],
+            "variants": ["Tradicional", "Resistente", "Economico", "Profissional"],
+            "sizes": ["7.5M", "15M", "30M", "45M"],
+        },
+        {
+            "departments": ["Granel"],
+            "product": "Castanhas e Mix",
+            "brands": ["Natural Life", "Vitao", "Mundo Verde", "Casa do Grao", "Granel Plus"],
+            "variants": ["Castanha de Caju", "Castanha do Para", "Amendoa", "Nozes", "Mix Premium"],
+            "sizes": ["100G", "250G", "500G", "1KG"],
+        },
+        {
+            "departments": ["Granel"],
+            "product": "Graos a Granel",
+            "brands": ["Natural Life", "Casa do Grao", "Granel Plus", "Mundo Verde", "Vitao"],
+            "variants": ["Lentilha", "Grao de Bico", "Quinoa", "Aveia", "Linhaça", "Amendoim"],
+            "sizes": ["200G", "500G", "1KG", "2KG"],
+        },
+        {
+            "departments": ["Padaria", "Congelados"],
+            "product": "Pao de Queijo",
+            "brands": ["Forno de Minas", "Sadia", "Seara", "Pif Paf", "Casa do Pao de Queijo"],
+            "variants": ["Tradicional", "Mini", "Coquetel", "Com Recheio", "Zero Lactose"],
+            "sizes": ["300G", "400G", "1KG", "2KG"],
+        },
+        {
+            "departments": ["Padaria", "Doces"],
+            "product": "Panetone",
+            "brands": ["Bauducco", "Visconti", "Tommy", "Casa Suica", "Ofner"],
+            "variants": ["Frutas", "Chocolate", "Trufado", "Gotas de Chocolate", "Zero Lactose"],
+            "sizes": ["400G", "500G", "750G", "1KG"],
+        },
+        {
+            "departments": ["Doces"],
+            "product": "Ovo de Pascoa",
+            "brands": ["Lacta", "Garoto", "Nestle", "Kinder", "Ferrero"],
+            "variants": ["Ao Leite", "Branco", "Crocrante", "Trufado", "Zero Acucar"],
+            "sizes": ["150G", "250G", "350G", "500G"],
+        },
+        {
+            "departments": ["Bebidas"],
+            "product": "Whisky",
+            "brands": ["Johnnie Walker", "Ballantines", "Jack Daniels", "Chivas Regal", "Passport"],
+            "variants": ["Escoces", "Bourbon", "Blend", "Single Malt", "8 Anos", "12 Anos"],
+            "sizes": ["700ML", "750ML", "1L"],
+        },
+        {
+            "departments": ["Bebidas"],
+            "product": "Vinho",
+            "brands": ["Casillero del Diablo", "Concha y Toro", "Miolo", "Salton", "Pergola", "Sangue de Boi"],
+            "variants": ["Tinto Seco", "Tinto Suave", "Branco Seco", "Branco Suave", "Rose", "Espumante"],
+            "sizes": ["750ML", "1L", "1.5L"],
+        },
+        {
+            "departments": ["Mercearia", "Granel"],
+            "product": "Sal Rosa",
+            "brands": ["Cisne", "Sinha", "Kitano", "Bombay", "Natural Life"],
+            "variants": ["Fino", "Grosso", "Moido na Hora", "Tradicional"],
+            "sizes": ["100G", "500G", "1KG"],
+        },
+        {
+            "departments": ["Mercearia", "Padaria"],
+            "product": "Polvilho",
+            "brands": ["Yoki", "Amafil", "Pinduca", "Sinha", "Da Terrinha"],
+            "variants": ["Doce", "Azedo", "Tradicional", "Granulado"],
+            "sizes": ["500G", "1KG", "5KG"],
+        },
+        {
+            "departments": ["Carnes", "Congelados"],
+            "product": "Polvo",
+            "brands": ["Costa Sul", "Copacol", "Swift", "Atlantico"],
+            "variants": ["Congelado", "Limpo", "Inteiro", "Tentaculos"],
+            "sizes": ["500G", "1KG", "2KG"],
+        },
+        {
+            "departments": ["Higiene", "Higiene Pessoal", "Utilidades"],
+            "product": "Palito de Dente",
+            "brands": ["Theoto", "Gaboardi", "Parana", "Billa", "Gina"],
+            "variants": ["Tradicional", "Higienico", "Mentolado"],
+            "sizes": ["100UN", "200UN", "500UN"],
+        },
+        {
+            "departments": ["Bebidas", "Congelados"],
+            "product": "Gelo",
+            "brands": ["Gelo Cristal", "Ice Fresh", "Polar Ice", "Gelopar"],
+            "variants": ["Cubos", "Escamas", "Triturado"],
+            "sizes": ["1KG", "3KG", "5KG", "10KG"],
+        },
+        {
+            "departments": ["Doces", "Mercearia"],
+            "product": "Salgadinho",
+            "brands": ["Elma Chips", "Yoki", "Cheetos", "Doritos", "Ruffles", "Fandangos"],
+            "variants": ["Queijo", "Presunto", "Churrasco", "Barbecue", "Nacho", "Pizza"],
+            "sizes": ["45G", "60G", "90G", "120G", "200G"],
+        },
+        {
+            "departments": ["Laticinios", "Frios"],
+            "product": "Queijo Fatiado",
+            "brands": ["Sadia", "Tirolez", "Polenghi", "Italac", "Vigor"],
+            "variants": ["Mussarela", "Prato", "Light", "Zero Lactose"],
+            "sizes": ["150G", "200G", "500G", "1KG"],
+        },
+        {
+            "departments": ["Mercearia", "Doces"],
+            "product": "Biscoito de Polvilho",
+            "brands": ["Vale Dourado", "Nazinha", "Cassini", "Yoki", "Santa Helena"],
+            "variants": ["Argola", "Palito", "Queijo", "Tradicional", "Assado"],
+            "sizes": ["80G", "100G", "200G", "500G", "1KG"],
+        },
+        {
+            "departments": ["Mercearia"],
+            "product": "Milho de Pipoca",
+            "brands": ["Yoki", "Sinhá", "Kisabor", "Zaeli", "Dona Clara"],
+            "variants": ["Tradicional", "Premium", "Canjica", "Amarela"],
+            "sizes": ["200G", "500G", "1KG", "5KG"],
+        },
+        {
+            "departments": ["Mercearia"],
+            "product": "Pipoca de Microondas",
+            "brands": ["Yoki", "Qualitá", "Dona Clara", "Kisabor", "Elma Chips"],
+            "variants": ["Manteiga", "Natural", "Queijo", "Caramelo", "Light"],
+            "sizes": ["80G", "90G", "100G", "120G"],
+        },
+        {
+            "departments": ["Doces"],
+            "product": "Pipoca Pronta",
+            "brands": ["Vitao", "Karintó", "Sabor de Festa", "Natural One", "Poppin"],
+            "variants": ["Doce", "Salgada", "Caramelo", "Chocolate", "Queijo"],
+            "sizes": ["40G", "60G", "80G", "120G"],
+        },
+        {
+            "departments": ["Mercearia", "Utilidades"],
+            "product": "Cigarro",
+            "brands": ["Marlboro", "Derby", "Hollywood", "Lucky Strike", "Camel", "Free"],
+            "variants": ["Vermelho", "Azul", "Mentolado", "Lights", "Original"],
+            "sizes": ["20UN"],
+        },
+        {
+            "departments": ["Utilidades", "Mercearia"],
+            "product": "Isqueiro",
+            "brands": ["Bic", "Clipper", "Fire Star", "Zippo", "Luxlit"],
+            "variants": ["Descartavel", "Metalico", "Mini", "Recarregavel"],
+            "sizes": ["1UN", "5UN", "12UN"],
+        },
+        {
+            "departments": ["Utilidades", "Mercearia"],
+            "product": "Fosforo",
+            "brands": ["Parana", "Fiat Lux", "Billa", "Gina", "Sol"],
+            "variants": ["Curto", "Longo", "Tradicional", "Forno e Fogao"],
+            "sizes": ["40UN", "100UN", "240UN"],
+        },
+        {
+            "departments": ["Utilidades"],
+            "product": "Caderno",
+            "brands": ["Tilibra", "Jandaia", "Credeal", "Foroni", "São Domingos"],
+            "variants": ["1 Materia", "10 Materias", "Universitario", "Brochura", "Capa Dura"],
+            "sizes": ["80FL", "96FL", "200FL", "320FL"],
+        },
+        {
+            "departments": ["Utilidades"],
+            "product": "Lapis",
+            "brands": ["Faber-Castell", "Bic", "Leo&Leo", "Cis", "Acrilex"],
+            "variants": ["Preto HB", "Grafite 2B", "Grafite 4B", "Escolar"],
+            "sizes": ["1UN", "6UN", "12UN", "24UN"],
+        },
+        {
+            "departments": ["Utilidades"],
+            "product": "Caneta",
+            "brands": ["Bic", "Pilot", "Compactor", "Faber-Castell", "Cis"],
+            "variants": ["Azul", "Preta", "Vermelha", "Esferografica", "Gel"],
+            "sizes": ["1UN", "3UN", "10UN", "50UN"],
+        },
+        {
+            "departments": ["Utilidades"],
+            "product": "Borracha Escolar",
+            "brands": ["Mercur", "Faber-Castell", "Leo&Leo", "Tris", "Maped"],
+            "variants": ["Branca", "Ponteira", "Soft", "Macia"],
+            "sizes": ["1UN", "2UN", "10UN", "20UN"],
+        },
+        {
+            "departments": ["Utilidades"],
+            "product": "Apontador",
+            "brands": ["Faber-Castell", "Maped", "Tris", "Leo&Leo", "Cis"],
+            "variants": ["Simples", "Com Deposito", "Metal", "Duplo"],
+            "sizes": ["1UN", "2UN", "12UN"],
+        },
+        {
+            "departments": ["Utilidades"],
+            "product": "Lapis de Cor",
+            "brands": ["Faber-Castell", "Acrilex", "Leo&Leo", "Bic", "Tris"],
+            "variants": ["Escolar", "Hexagonal", "Aquarelavel", "Jumbo"],
+            "sizes": ["12CORES", "24CORES", "36CORES"],
+        },
+        {
+            "departments": ["Utilidades"],
+            "product": "Giz de Cera",
+            "brands": ["Acrilex", "Faber-Castell", "Leo&Leo", "Bic", "Tris"],
+            "variants": ["Curto", "Jumbo", "Escolar"],
+            "sizes": ["6UN", "12UN", "24UN"],
+        },
+        {
+            "departments": ["Utilidades"],
+            "product": "Massa de Modelar",
+            "brands": ["Acrilex", "Faber-Castell", "Leo&Leo", "Tris", "Koala"],
+            "variants": ["Escolar", "Macia", "Colorida"],
+            "sizes": ["6CORES", "12CORES", "500G"],
+        },
+        {
+            "departments": ["Utilidades"],
+            "product": "Tinta Guache",
+            "brands": ["Acrilex", "Faber-Castell", "Tris", "Koala", "Compactor"],
+            "variants": ["Escolar", "Lavavel", "Metalica"],
+            "sizes": ["15ML", "250ML", "500ML"],
+        },
+        {
+            "departments": ["Utilidades"],
+            "product": "Papel Sulfite",
+            "brands": ["Chamex", "Report", "Copimax", "Suzano", "One"],
+            "variants": ["A4", "Branco", "Colorido", "Reciclado"],
+            "sizes": ["100FL", "500FL", "1000FL"],
+        },
+        {
+            "departments": ["Utilidades"],
+            "product": "Cola Escolar",
+            "brands": ["Tenaz", "Pritt", "Acrilex", "Leo&Leo", "Scotch"],
+            "variants": ["Branca", "Bastao", "Liquida", "Transparente"],
+            "sizes": ["40G", "90G", "500G", "1KG"],
+        },
+        {
+            "departments": ["Utilidades"],
+            "product": "Tesoura Escolar",
+            "brands": ["Maped", "Tris", "Leo&Leo", "Cis", "Molin"],
+            "variants": ["Sem Ponta", "Com Ponta", "Inox", "Infantil"],
+            "sizes": ["1UN", "12CM", "14CM"],
+        },
+        {
+            "departments": ["Utilidades"],
+            "product": "Regua",
+            "brands": ["Trident", "Leo&Leo", "Maped", "Faber-Castell", "Cis"],
+            "variants": ["Plastica", "Metal", "Flexivel"],
+            "sizes": ["15CM", "30CM", "50CM"],
+        },
+        {
+            "departments": ["Utilidades"],
+            "product": "Mochila Escolar",
+            "brands": ["Sestini", "Clio", "Luxcel", "Xeryus", "Seanite"],
+            "variants": ["Infantil", "Juvenil", "Laptop", "Rodinhas"],
+            "sizes": ["10L", "20L", "30L", "40L"],
+        },
+        {
+            "departments": ["Utilidades"],
+            "product": "Estojo Escolar",
+            "brands": ["Tilibra", "Sestini", "Luxcel", "Clio", "Seanite"],
+            "variants": ["Simples", "Duplo", "Triplo", "Infantil"],
+            "sizes": ["1UN", "2UN", "3UN"],
+        },
+        {
+            "departments": ["Utilidades"],
+            "product": "Lancheira",
+            "brands": ["Sestini", "Tilibra", "Luxcel", "Clio", "Jacki Design"],
+            "variants": ["Termica", "Infantil", "Bolsa", "Compacta"],
+            "sizes": ["4L", "6L", "10L"],
         },
     ]
 
@@ -710,6 +1114,21 @@ class Command(BaseCommand):
         source_variant.movements.update(variant=target_variant)
         source_variant.delete()
 
+    def _rename_variant_field_with_merge(self, queryset, field_name, target_value):
+        for source_variant in list(queryset):
+            filters = {
+                "product": source_variant.product,
+                "variant_label": source_variant.variant_label,
+                "package_size": source_variant.package_size,
+            }
+            filters[field_name] = target_value
+            target_variant = ProductVariant.objects.filter(**filters).exclude(id=source_variant.id).first()
+            if target_variant:
+                self._merge_variant_records(source_variant, target_variant)
+                continue
+            setattr(source_variant, field_name, target_value)
+            source_variant.save(update_fields=[field_name, "updated_at"])
+
     def _merge_legacy_product_names(self, old_name, new_name):
         source_bases = list(ProductBase.objects.filter(name__iexact=old_name))
         for source_base in source_bases:
@@ -801,6 +1220,43 @@ class Command(BaseCommand):
         # Consolidate old naming into canonical product names.
         for old_name, new_name in self.LEGACY_PRODUCT_RENAMES:
             self._merge_legacy_product_names(old_name, new_name)
+
+        # Normalize obvious misspellings/legacy names in product bases.
+        for old_name, new_name in (
+            ("Esponja de Aco", "Esponja de Aço"),
+            ("Pacoca", "Paçoca"),
+            ("Acai", "Açaí"),
+            ("Acafrao", "Açafrão"),
+        ):
+            self._merge_legacy_product_names(old_name, new_name)
+
+        # Fix misspelled variant labels and package sizes.
+        self._rename_variant_field_with_merge(
+            ProductVariant.objects.filter(
+                product__name__iexact="Cheiro Verde",
+                variant_label__iexact="Maco",
+            ),
+            "variant_label",
+            "Maço",
+        )
+        self._rename_variant_field_with_merge(
+            ProductVariant.objects.filter(package_size__iexact="1MACO"),
+            "package_size",
+            "1MAÇO",
+        )
+
+        # Remove outdated/ambiguous variants that generate noise.
+        ProductVariant.objects.filter(
+            product__name__iexact="Mussarela Fatiada", variant_label__iexact="Lanche"
+        ).delete()
+        ProductVariant.objects.filter(
+            product__name__icontains="refrigerante",
+            variant_label__iexact="Zero",
+        ).delete()
+        ProductVariant.objects.filter(
+            product__name__iexact="Refri",
+            variant_label__iexact="Zero",
+        ).delete()
 
         # Drop orphan product bases left by cleanup.
         ProductBase.objects.filter(variants__isnull=True).delete()

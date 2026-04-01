@@ -78,7 +78,18 @@ PRODUCT_RULES = [
     {
         "departments": ["Bebidas"],
         "products": ["refrigerante", "refri"],
-        "types": ["Cola", "Guarana", "Laranja", "Limao", "Uva", "Zero"],
+        "types": [
+            "Cola",
+            "Guarana",
+            "Laranja",
+            "Limao",
+            "Uva",
+            "Cola Zero",
+            "Guarana Zero",
+            "Laranja Zero",
+            "Limao Zero",
+            "Uva Zero",
+        ],
         "sizes": ["200ML", "350ML", "600ML", "1L", "1.5L", "2L", "3L"],
         "default_package_name": "FARDO",
         "default_package_units": 6,
@@ -95,9 +106,17 @@ PRODUCT_RULES = [
         "departments": ["Bebidas"],
         "products": ["agua"],
         "types": ["Sem Gas", "Com Gas", "Saborizada"],
-        "sizes": ["500ML", "1L", "1.5L", "2L", "5L"],
+        "sizes": ["500ML", "1L", "1.5L", "2L", "5L", "10L", "20L"],
         "default_package_name": "FARDO",
         "default_package_units": 12,
+    },
+    {
+        "departments": ["Bebidas"],
+        "products": ["garrafao", "garrafao de agua", "agua mineral garrafao"],
+        "types": ["Sem Gas", "Com Gas"],
+        "sizes": ["10L", "20L"],
+        "default_package_name": "UNIDADE",
+        "default_package_units": 1,
     },
     {
         "departments": ["Bebidas"],
@@ -183,6 +202,22 @@ PRODUCT_RULES = [
         "default_package_units": 10,
     },
     {
+        "departments": ["Carnes", "Congelados"],
+        "products": ["peru inteiro", "peru natalino", "peru"],
+        "types": ["Tradicional", "Temperado", "Natalino"],
+        "sizes": ["3KG", "4KG", "5KG", "6KG", "7KG"],
+        "default_package_name": "UNIDADE",
+        "default_package_units": 1,
+    },
+    {
+        "departments": ["Carnes", "Congelados"],
+        "products": ["chester inteiro", "chester natalino", "chester"],
+        "types": ["Tradicional", "Temperado", "Natalino"],
+        "sizes": ["3KG", "4KG", "5KG", "6KG", "7KG"],
+        "default_package_name": "UNIDADE",
+        "default_package_units": 1,
+    },
+    {
         "departments": ["Carnes"],
         "products": ["carne bovina", "bovina"],
         "types": [
@@ -261,6 +296,7 @@ PRODUCT_RULES = [
         "departments": ["Congelados"],
         "products": ["polpa", "polpa de fruta"],
         "types": [
+            "Açaí",
             "Acerola",
             "Caju",
             "Manga",
@@ -373,10 +409,18 @@ PRODUCT_RULES = [
     {
         "departments": ["Padaria"],
         "products": ["bolo pronto", "bolo"],
-        "types": ["Chocolate", "Cenoura", "Laranja", "Fuba", "Milho"],
+        "types": ["Chocolate", "Cenoura", "Laranja", "Fuba", "Milho", "Formigueiro", "Limao", "Baunilha"],
         "sizes": ["250G", "400G", "500G", "1KG"],
         "default_package_name": "CAIXA",
         "default_package_units": 6,
+    },
+    {
+        "departments": ["Padaria"],
+        "products": ["bolo confeitado"],
+        "types": ["Chocolate", "Morango", "Prestigio", "Ninho", "Abacaxi", "Formigueiro"],
+        "sizes": ["500G", "1KG", "1.5KG", "2KG", "3KG"],
+        "default_package_name": "UNIDADE",
+        "default_package_units": 1,
     },
     {
         "departments": ["Padaria"],
@@ -405,7 +449,18 @@ PRODUCT_RULES = [
     {
         "departments": ["Mercearia"],
         "products": ["molho de tomate", "molho tomate"],
-        "types": ["Tradicional", "Manjericao", "Bolonhesa", "Pizza", "Sugo"],
+        "types": [
+            "Tradicional",
+            "Manjericao",
+            "Bolonhesa",
+            "Pizza",
+            "Sugo",
+            "Napolitano",
+            "Alho e Oleo",
+            "Arrabbiata",
+            "Quatro Queijos",
+            "Rustico",
+        ],
         "sizes": ["300G", "340G", "520G", "1KG"],
         "default_package_name": "CAIXA",
         "default_package_units": 24,
@@ -607,7 +662,7 @@ PRODUCT_RULES = [
         "departments": ["Hortifruti"],
         "products": ["alface", "couve", "repolho", "brocolis", "cheiro verde"],
         "types": ["In Natura", "Higienizada"],
-        "sizes": ["1UN", "1MACO", "300G", "500G"],
+        "sizes": ["1UN", "1MAÇO", "300G", "500G"],
         "default_package_name": "CAIXA",
         "default_package_units": 1,
     },
@@ -781,8 +836,8 @@ PRODUCT_RULES = [
     },
     {
         "departments": ["Padaria"],
-        "products": ["pao de forma", "bolo pronto", "torrada"],
-        "types": ["Tradicional", "Integral", "Multigraos", "Chocolate", "Cenoura"],
+        "products": ["pao de forma", "bolo pronto", "bolo confeitado", "torrada"],
+        "types": ["Tradicional", "Integral", "Multigraos", "Chocolate", "Cenoura", "Formigueiro", "Morango"],
         "sizes": ["120G", "160G", "200G", "400G", "500G", "600G", "1KG"],
         "default_package_name": "CAIXA",
         "default_package_units": 10,
@@ -1267,7 +1322,7 @@ LOCAL_CATALOG_ITEMS = [
     },
     {
         "barcode": "7898010101004",
-        "product_name": "Acai",
+        "product_name": "Açaí",
         "brand": "Frooty",
         "category": "Congelados",
         "variant_label": "Com Guarana",
@@ -1277,7 +1332,7 @@ LOCAL_CATALOG_ITEMS = [
     },
     {
         "barcode": "7898010101005",
-        "product_name": "Acai",
+        "product_name": "Açaí",
         "brand": "Oakberry",
         "category": "Congelados",
         "variant_label": "Tradicional",
@@ -1687,7 +1742,7 @@ LOCAL_CATALOG_ITEMS = [
     },
     {
         "barcode": "7898010101046",
-        "product_name": "Pacoca",
+        "product_name": "Paçoca",
         "brand": "Pacoquita",
         "category": "Doces e Biscoitos",
         "variant_label": "Rolha",
@@ -1871,7 +1926,7 @@ LOCAL_CATALOG_ITEMS = [
         "brand": "In Natura",
         "category": "Hortifruti",
         "variant_label": "Manteiga",
-        "package_size": "1MACO",
+        "package_size": "1MAÇO",
         "department_names": ["Hortifruti"],
         "source": "catalogo_local_br",
     },
@@ -1891,7 +1946,7 @@ LOCAL_CATALOG_ITEMS = [
         "brand": "In Natura",
         "category": "Hortifruti",
         "variant_label": "Higienizado",
-        "package_size": "1MACO",
+        "package_size": "1MAÇO",
         "department_names": ["Hortifruti"],
         "source": "catalogo_local_br",
     },
@@ -1907,7 +1962,7 @@ LOCAL_CATALOG_ITEMS = [
     },
     {
         "barcode": "7898010101068",
-        "product_name": "Acafrao",
+        "product_name": "Açafrão",
         "brand": "Kitano",
         "category": "Mercearia",
         "variant_label": "Po",
@@ -2577,7 +2632,7 @@ LOCAL_CATALOG_ITEMS = [
     },
     {
         "barcode": "7898010101135",
-        "product_name": "Esponja de Aco",
+        "product_name": "Esponja de Aço",
         "brand": "Bombril",
         "category": "Limpeza",
         "variant_label": "Tradicional",
@@ -3000,8 +3055,8 @@ LOCAL_CATALOG_ITEMS = [
         "product_name": "Cheiro Verde",
         "brand": "Hortifruti",
         "category": "Hortifruti",
-        "variant_label": "Maco",
-        "package_size": "1MACO",
+        "variant_label": "Maço",
+        "package_size": "1MAÇO",
         "department_names": ["Hortifruti"],
         "source": "catalogo_local_br",
     },
@@ -3183,5 +3238,6 @@ def lookup_local_by_barcode(barcode: str) -> dict | None:
         if item.get("barcode") == code:
             return item
     return None
+
 
 
