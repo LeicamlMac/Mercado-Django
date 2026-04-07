@@ -199,8 +199,6 @@ class StockMovement(models.Model):
     def __str__(self):
         return f"{self.variant} {self.movement_type} {self.units_delta:+d}"
 
-# Adicione isto ao seu api/models.py
-
 class Expense(models.Model):
     EXPENSE_TYPES = [
         ('FIXA', 'Fixa'),

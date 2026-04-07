@@ -1073,8 +1073,6 @@ class CurrentSessionView(APIView):
             }
         )
 
-# No seu api/views.py
-
 
 class MonthlyReportView(APIView):
     permission_classes = [IsAuthenticated]
@@ -1092,10 +1090,10 @@ class MonthlyReportView(APIView):
             total=Sum(F('units_delta') * F('variant__price'))
         )['total'] or 0
         
-        # Como units_delta na venda é negativo, vamos converter para positivo
+        # units_delta para converter para valor positivo, já que vendas são registradas como negativo no estoque
         total_sales = abs(total_sales)
 
-        # 2. Total de Despesas
+        #Total de Despesas
         total_expenses = Expense.objects.filter(
             date__month=month,
             date__year=year

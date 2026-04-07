@@ -211,7 +211,6 @@ class AdjustStockSerializer(serializers.Serializer):
     quantity_units = serializers.IntegerField()
     notes = serializers.CharField(max_length=255, required=False, allow_blank=True)
 
-# No seu api/serializers.py
 
 class ExpenseSerializer(serializers.ModelSerializer):
     class Meta:
