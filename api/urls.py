@@ -20,6 +20,7 @@ from .views import (
     RestockVariantView,
     SellStockView,
     StockMovementViewSet,
+    Expense,
 )
 
 router = DefaultRouter()

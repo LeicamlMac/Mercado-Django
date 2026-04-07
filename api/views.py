@@ -9,6 +9,7 @@ from rest_framework import filters, status, viewsets
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
+from datetime import datetime
 
 from .models import (
     Category,
@@ -17,6 +18,7 @@ from .models import (
     ProductPackage,
     ProductVariant,
     StockMovement,
+    Expense,
 )
 from .permissions import CatalogWritePermission
 from .serializers import (
@@ -620,20 +622,34 @@ class ProductMetricsView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
-        data = ProductVariant.objects.aggregate(
+        # 1. Métricas de Inventário (O que você já tem)
+        inventory_data = ProductVariant.objects.aggregate(
             total_variants=Count("id"),
-            active_variants=Count("id", filter=Q(is_active=True)),
             total_stock=Sum("stock"),
             low_stock_count=Count("id", filter=Q(stock__lt=5)),
         )
-        return Response(
-            {
-                "total_variants": data.get("total_variants") or 0,
-                "active_variants": data.get("active_variants") or 0,
-                "total_stock": data.get("total_stock") or 0,
-                "low_stock_count": data.get("low_stock_count") or 0,
+
+        # 2. Métricas Financeiras (O que o RF08 pede)
+        # Soma total de vendas (Faturamento)
+        faturamento = StockMovement.objects.filter(
+            movement_type="OUT" # Ou conforme seu modelo de Vendas
+        ).aggregate(total=Sum(F('units_delta') * F('variant__price'))).get("total") or 0
+        
+        # Soma de despesas PAGAS (RF06)
+        # Nota: Certifique-se de que seu modelo de Expense tenha o campo 'paga'
+        # Correção para a ProductMetricsView (ou onde estiver a linha 640)
+        despesas = Expense.objects.aggregate(total=Sum("amount")).get("total") or 0
+
+        saldo_caixa = abs(faturamento) - despesas
+
+        return Response({
+            "inventory": inventory_data,
+            "financial": {
+                "faturamento_mensal": abs(faturamento),
+                "despesas_pagas": despesas,
+                "saldo_caixa": saldo_caixa
             }
-        )
+        })
 
 
 class QuickEntryView(APIView):
@@ -1057,3 +1073,40 @@ class CurrentSessionView(APIView):
             }
         )
 
+# No seu api/views.py
+
+
+class MonthlyReportView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        month = request.query_params.get('month', datetime.now().month)
+        year = request.query_params.get('year', datetime.now().year)
+
+        # 1. Total de Vendas (saídas de stock do tipo 'SELL')
+        total_sales = StockMovement.objects.filter(
+            movement_type='SELL',
+            created_at__month=month,
+            created_at__year=year
+        ).aggregate(
+            total=Sum(F('units_delta') * F('variant__price'))
+        )['total'] or 0
+        
+        # Como units_delta na venda é negativo, vamos converter para positivo
+        total_sales = abs(total_sales)
+
+        # 2. Total de Despesas
+        total_expenses = Expense.objects.filter(
+            date__month=month,
+            date__year=year
+        ).aggregate(total=Sum('amount'))['total'] or 0
+
+        saldo = total_sales - total_expenses
+
+        return Response({
+            "faturamento": total_sales,
+            "despesas": total_expenses,
+            "saldo_final": saldo,
+            "mes": month,
+            "ano": year
+        })

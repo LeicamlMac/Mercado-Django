@@ -20,7 +20,7 @@ class CatalogApiTests(APITestCase):
         )
 
         self.category = Category.objects.create(name="Arroz")
-        self.department = Department.objects.create(name="Mercearia")
+        self.department, _ = Department.objects.get_or_create(name="Mercearia")
         self.base = ProductBase.objects.create(
             category=self.category, name="Arroz", brand="Camil"
         )

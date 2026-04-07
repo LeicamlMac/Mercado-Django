@@ -198,3 +198,25 @@ class StockMovement(models.Model):
 
     def __str__(self):
         return f"{self.variant} {self.movement_type} {self.units_delta:+d}"
+
+# Adicione isto ao seu api/models.py
+
+class Expense(models.Model):
+    EXPENSE_TYPES = [
+        ('FIXA', 'Fixa'),
+        ('VARIAVEL', 'Variável'),
+    ]
+
+    description = models.CharField("descrição", max_length=255)
+    amount = models.DecimalField("valor", max_digits=10, decimal_places=2)
+    expense_type = models.CharField("tipo", max_length=10, choices=EXPENSE_TYPES)
+    date = models.DateField("data", default=timezone.now)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = "despesa"
+        verbose_name_plural = "despesas"
+        ordering = ['-date']
+
+    def __str__(self):
+        return f"{self.description} - R$ {self.amount}"

@@ -7,6 +7,7 @@ from .models import (
     ProductPackage,
     ProductVariant,
     StockMovement,
+    Expense,
 )
 
 ALLOWED_DEPARTMENTS = {
@@ -209,3 +210,10 @@ class AdjustStockSerializer(serializers.Serializer):
     variant_id = serializers.IntegerField()
     quantity_units = serializers.IntegerField()
     notes = serializers.CharField(max_length=255, required=False, allow_blank=True)
+
+# No seu api/serializers.py
+
+class ExpenseSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Expense
+        fields = '__all__'
