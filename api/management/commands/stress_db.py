@@ -1,5 +1,6 @@
 ﻿import json
 import random
+import shutil
 import statistics
 import threading
 import time
@@ -94,6 +95,15 @@ class Command(BaseCommand):
             action="store_true",
             help="Abre o navegador automaticamente quando usar --serve.",
         )
+        parser.add_argument(
+            "--cleanup-age-minutes",
+            type=float,
+            default=2.0,
+            help=(
+                "Remove automaticamente relatorios antigos na pasta de saida "
+                "(em minutos). Use 0 para desativar."
+            ),
+        )
 
     def handle(self, *args, **options):
         threads = options["threads"]
@@ -106,11 +116,15 @@ class Command(BaseCommand):
         serve = options["serve"]
         port = options["port"]
         open_browser = options["open_browser"]
+        cleanup_age_minutes = options["cleanup_age_minutes"]
 
         if threads < 1 or ops_per_thread < 1:
             raise CommandError("Use --threads >= 1 e --ops-per-thread >= 1.")
         if read_ratio < 0.0 or read_ratio > 1.0:
             raise CommandError("Use --read-ratio entre 0.0 e 1.0.")
+
+        if cleanup_age_minutes < 0:
+            raise CommandError("Use --cleanup-age-minutes >= 0.")
 
         variant_ids = list(ProductVariant.objects.values_list("id", flat=True))
         if not variant_ids:
@@ -278,15 +292,79 @@ class Command(BaseCommand):
         html_path.parent.mkdir(parents=True, exist_ok=True)
         html_path.write_text(self._build_html(report), encoding="utf-8")
 
+        cleanup_deleted = self._cleanup_old_outputs(
+            html_path=html_path,
+            json_path=json_path,
+            max_age_minutes=cleanup_age_minutes,
+        )
+
         self.stdout.write(self.style.SUCCESS("Stress test concluido."))
         self.stdout.write(f"HTML: {html_path}")
         self.stdout.write(f"JSON: {json_path}")
         self.stdout.write(
             f"Resumo: sucesso={success_count} erro={error_count} throughput={report['results']['throughput_ops_sec']} ops/s"
         )
+        if cleanup_age_minutes > 0:
+            self.stdout.write(f"Limpeza automatica: {cleanup_deleted} arquivo(s)/pasta(s) removidos.")
         if serve:
             self._serve_report(html_path, port=port, open_browser=open_browser)
 
+
+    def _cleanup_old_outputs(self, html_path, json_path, max_age_minutes):
+        if max_age_minutes <= 0:
+            return 0
+
+        now = time.time()
+        max_age_seconds = max_age_minutes * 60.0
+        preserved = {html_path.resolve(), json_path.resolve()}
+        cleaned_count = 0
+
+        cleanup_roots = {
+            html_path.parent.resolve(),
+            json_path.parent.resolve(),
+        }
+
+        for root in cleanup_roots:
+            if not root.exists() or not root.is_dir():
+                continue
+
+            for path in root.glob("stress-*.html"):
+                if self._should_delete_path(path, preserved, now, max_age_seconds):
+                    path.unlink(missing_ok=True)
+                    cleaned_count += 1
+
+            for path in root.glob("stress-*.json"):
+                if self._should_delete_path(path, preserved, now, max_age_seconds):
+                    path.unlink(missing_ok=True)
+                    cleaned_count += 1
+
+            # Remove pastas temporarias (ex: tmp8piiiq5q) no mesmo diretorio de saida.
+            for path in root.glob("tmp*"):
+                if not path.is_dir():
+                    continue
+                if self._is_older_than(path, now, max_age_seconds):
+                    shutil.rmtree(path, ignore_errors=True)
+                    cleaned_count += 1
+
+        return cleaned_count
+
+    def _should_delete_path(self, path, preserved, now, max_age_seconds):
+        if not path.exists() or not path.is_file():
+            return False
+        try:
+            resolved = path.resolve()
+        except OSError:
+            return False
+        if resolved in preserved:
+            return False
+        return self._is_older_than(path, now, max_age_seconds)
+
+    def _is_older_than(self, path, now, max_age_seconds):
+        try:
+            age = now - path.stat().st_mtime
+        except OSError:
+            return False
+        return age >= max_age_seconds
 
     def _build_html(self, report):
         report_json = json.dumps(report, ensure_ascii=False)

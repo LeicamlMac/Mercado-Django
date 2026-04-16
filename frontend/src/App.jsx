@@ -1,4 +1,4 @@
-﻿import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import "./App.css";
 import {
   DEFAULT_ORDERING,
@@ -47,6 +47,10 @@ function ThemeToggleButton({ theme, onToggle }) {
   );
 }
 function App() {
+  const inventorySearchRef = useRef(null);
+  const quickEntrySectionRef = useRef(null);
+  const operationSectionRef = useRef(null);
+  const inventorySectionRef = useRef(null);
   const [theme, setTheme] = useState(() => loadStoredTheme());
   const [tokens, setTokens] = useState(() => loadStoredTokens());
   const [session, setSession] = useState(null);
@@ -81,6 +85,7 @@ function App() {
   const [activeSeasonalCampaignId, setActiveSeasonalCampaignId] = useState("");
   const [activeSeasonalTerms, setActiveSeasonalTerms] = useState([]);
   const [statusFilter, setStatusFilter] = useState("all");
+  const [alertFilter, setAlertFilter] = useState("all");
   const [ordering, setOrdering] = useState(DEFAULT_ORDERING);
   const [page, setPage] = useState(1);
   const [pageCount, setPageCount] = useState(1);
@@ -451,14 +456,21 @@ function App() {
     loadSession();
   }, [loadSession]);
 
+  const setorAtivoNome = useMemo(() => {
+    if (setorAtivoId === "all") return "Todos";
+    const setor = setores.find((item) => String(item.id) === String(setorAtivoId));
+    return setor?.name || "Todos";
+  }, [setorAtivoId, setores]);
+
   const queryString = useMemo(() => {
     const params = new URLSearchParams();
     params.set("page", String(page));
     params.set("ordering", ordering);
     if (searchApplied.trim()) params.set("search", searchApplied.trim());
     if (statusFilter !== "all") params.set("is_active", statusFilter);
+    if (setorAtivoId !== "all") params.set("department_id", String(setorAtivoId));
     return params.toString();
-  }, [page, ordering, searchApplied, statusFilter]);
+  }, [page, ordering, searchApplied, statusFilter, setorAtivoId]);
 
   const loadItems = useCallback(async () => {
     if (!session) return;
@@ -614,6 +626,25 @@ function App() {
     }, 250);
     return () => clearTimeout(timer);
   }, [search]);
+
+  useEffect(() => {
+    function onGlobalShortcut(event) {
+      const targetTag = String(event.target?.tagName || "").toUpperCase();
+      const typingOnField = ["INPUT", "TEXTAREA", "SELECT"].includes(targetTag);
+      if (event.key === "/" && !typingOnField) {
+        event.preventDefault();
+        inventorySearchRef.current?.focus();
+      }
+      if (event.key === "Escape" && document.activeElement === inventorySearchRef.current) {
+        setSearch("");
+        setSearchApplied("");
+        inventorySearchRef.current?.blur();
+      }
+    }
+
+    window.addEventListener("keydown", onGlobalShortcut);
+    return () => window.removeEventListener("keydown", onGlobalShortcut);
+  }, []);
 
   useEffect(() => {
     loadOperacaoContext();
@@ -871,6 +902,102 @@ function App() {
       return alerts;
     },
     [getRuleForProductName]
+  );
+
+  const inventoryEntries = useMemo(
+    () =>
+      items.map((item) => {
+        const alerts = getItemAlerts(item);
+        const critical = alerts.some((alert) => alert.level === "critical");
+        const warning = alerts.some((alert) => alert.level === "warning");
+        return {
+          item,
+          alerts,
+          critical,
+          warning,
+          score: (critical ? 100 : 0) + (warning ? 10 : 0) + (Number(item?.stock || 0) <= 0 ? 5 : 0),
+        };
+      }),
+    [items, getItemAlerts]
+  );
+
+  const displayedEntries = useMemo(() => {
+    if (alertFilter === "critical") {
+      return inventoryEntries.filter((entry) => entry.critical);
+    }
+    if (alertFilter === "warning") {
+      return inventoryEntries.filter((entry) => entry.warning && !entry.critical);
+    }
+    if (alertFilter === "attention") {
+      return inventoryEntries.filter((entry) => entry.warning || entry.critical);
+    }
+    return inventoryEntries;
+  }, [inventoryEntries, alertFilter]);
+
+  const inventoryAttentionList = useMemo(
+    () =>
+      [...inventoryEntries]
+        .filter((entry) => entry.warning || entry.critical)
+        .sort((a, b) => {
+          if (b.score !== a.score) return b.score - a.score;
+          const aStock = Number(a.item?.stock || 0);
+          const bStock = Number(b.item?.stock || 0);
+          if (aStock !== bStock) return aStock - bStock;
+          return compareNormalizedPtBr(a.item?.product_name, b.item?.product_name);
+        })
+        .slice(0, 6),
+    [inventoryEntries]
+  );
+
+  const inventorySummary = useMemo(() => {
+    const total = inventoryEntries.length;
+    const critical = inventoryEntries.filter((entry) => entry.critical).length;
+    const warning = inventoryEntries.filter((entry) => entry.warning && !entry.critical).length;
+    return {
+      total,
+      critical,
+      warning,
+      visible: displayedEntries.length,
+    };
+  }, [inventoryEntries, displayedEntries]);
+
+  const inventoryHealth = useMemo(() => {
+    const total = Math.max(1, Number(metrics.total_variants || 0));
+    const lowStockCount = Number(metrics.low_stock_count || 0);
+    const healthyCount = Math.max(0, total - lowStockCount);
+    const healthyPercent = Math.round((healthyCount / total) * 100);
+    return {
+      healthyCount,
+      lowStockCount,
+      healthyPercent,
+    };
+  }, [metrics.total_variants, metrics.low_stock_count]);
+
+  const applyAlertFilter = useCallback((value) => {
+    setPage(1);
+    setAlertFilter(value);
+  }, []);
+
+  const scrollToSection = useCallback((targetRef) => {
+    targetRef?.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }, []);
+
+  const handlePrepareRestock = useCallback(
+    async (item) => {
+      const query = `${item?.product_name || ""} ${item?.brand || ""}`.trim();
+      if (!query) return;
+      setOperacaoSearch(query);
+      await loadOperacaoItems(query, true);
+      setOperacaoForm((prev) => ({
+        ...prev,
+        tipo: "RECEIVE",
+        package_name: "UNIDADE",
+        package_quantity: "1",
+        notes: `Reposicao sugerida para ${corrigirOrtografiaUI(item?.product_name || "")}`,
+      }));
+      setToast("Item pronto para reposicao na secao Operacao de estoque.");
+    },
+    [loadOperacaoItems]
   );
 
   function getGroupVariantOptions(group) {
@@ -1289,8 +1416,54 @@ function App() {
         </article>
       </section>
 
+      <section className="panel dashboard-panel">
+        <div className="toolbar">
+          <h2>Radar do dia</h2>
+          <span className="muted">Foco em operacao e agilidade</span>
+        </div>
+        <div className="radar-grid">
+          <article className="radar-card">
+            <span>Saude do estoque</span>
+            <strong>{inventoryHealth.healthyPercent}%</strong>
+            <p>
+              {inventoryHealth.healthyCount} variacoes estaveis e {inventoryHealth.lowStockCount} em baixo estoque.
+            </p>
+            <div className="progress-track" role="progressbar" aria-valuenow={inventoryHealth.healthyPercent} aria-valuemin={0} aria-valuemax={100}>
+              <div className="progress-fill" style={{ width: `${inventoryHealth.healthyPercent}%` }} />
+            </div>
+          </article>
+          <article className="radar-card">
+            <span>Pendencias criticas</span>
+            <strong>{inventorySummary.critical}</strong>
+            <p>Itens sem preco ou com risco alto para operacao.</p>
+          </article>
+          <article className="radar-card">
+            <span>Avisos de atencao</span>
+            <strong>{inventorySummary.warning}</strong>
+            <p>Itens com risco moderado que valem revisao ainda hoje.</p>
+          </article>
+        </div>
+        <div className="quick-actions-strip">
+          <button type="button" className="ghost" onClick={() => scrollToSection(quickEntrySectionRef)}>
+            Ir para Cadastro rapido
+          </button>
+          <button type="button" className="ghost" onClick={() => scrollToSection(operationSectionRef)}>
+            Ir para Operacao
+          </button>
+          <button type="button" className="ghost" onClick={() => scrollToSection(inventorySectionRef)}>
+            Ir para Itens cadastrados
+          </button>
+          <button type="button" className="ghost" onClick={() => applyAlertFilter("critical")}>
+            Mostrar so criticos
+          </button>
+        </div>
+      </section>
+
       <section className="panel">
         <h2>Setores</h2>
+        <p className="hint">
+          Setor ativo: <strong>{corrigirOrtografiaUI(setorAtivoNome)}</strong>
+        </p>
         <div className="tabs-setores">
           <button
             type="button"
@@ -1356,7 +1529,7 @@ function App() {
       </section>
 
       {canWrite ? (
-        <section className="panel">
+        <section className="panel" ref={quickEntrySectionRef}>
           <h2>Entrada rápida (cria ou repõe automaticamente)</h2>
           <p className="hint">
             Dica: ao informar o produto (ex: Leite, Arroz, Refrigerante), o formulário
@@ -1560,7 +1733,7 @@ function App() {
       )}
 
       {canWrite ? (
-        <section className="panel">
+        <section className="panel" ref={operationSectionRef}>
           <h2>Operação de estoque</h2>
           <p className="hint">
             Essa seção serve para movimentar estoque de um item já cadastrado: <strong>Receber</strong> (entrada), <strong>Venda</strong> (saída) e <strong>Ajuste</strong> (corrigir contagem).
@@ -1736,12 +1909,13 @@ function App() {
         </section>
       ) : null}
 
-      <section className="panel">
+      <section className="panel" ref={inventorySectionRef}>
         <div className="toolbar">
           <h2>Itens cadastrados</h2>
           <div className="filters">
             <input
-              placeholder="Buscar por produto, marca, tipo..."
+              ref={inventorySearchRef}
+              placeholder="Buscar por produto, marca, tipo... (atalho: /)"
               value={search}
               onChange={(event) => {
                 if (activeSeasonalCampaignId) {
@@ -1772,6 +1946,69 @@ function App() {
             </select>
           </div>
         </div>
+        {setorAtivoId !== "all" ? (
+          <p className="hint">
+            Exibindo itens do setor <strong>{corrigirOrtografiaUI(setorAtivoNome)}</strong>.
+          </p>
+        ) : null}
+        <div className="inventory-insights">
+          <div className="inventory-summary">
+            <span>{`Visiveis: ${inventorySummary.visible}/${inventorySummary.total}`}</span>
+            <span>{`Criticos: ${inventorySummary.critical}`}</span>
+            <span>{`Avisos: ${inventorySummary.warning}`}</span>
+          </div>
+          <div className="inventory-filter-chips">
+            <button
+              type="button"
+              className={alertFilter === "all" ? "chip-action active" : "chip-action"}
+              onClick={() => applyAlertFilter("all")}
+            >
+              Todos
+            </button>
+            <button
+              type="button"
+              className={alertFilter === "attention" ? "chip-action active" : "chip-action"}
+              onClick={() => applyAlertFilter("attention")}
+            >
+              Com alerta
+            </button>
+            <button
+              type="button"
+              className={alertFilter === "critical" ? "chip-action active" : "chip-action"}
+              onClick={() => applyAlertFilter("critical")}
+            >
+              Criticos
+            </button>
+            <button
+              type="button"
+              className={alertFilter === "warning" ? "chip-action active" : "chip-action"}
+              onClick={() => applyAlertFilter("warning")}
+            >
+              Avisos
+            </button>
+          </div>
+        </div>
+        {canWrite && inventoryAttentionList.length ? (
+          <div className="attention-box">
+            <h3>Prioridades do turno</h3>
+            <div className="attention-list">
+              {inventoryAttentionList.map((entry) => (
+                <article key={`attention-${entry.item.id}`} className="attention-item">
+                  <div>
+                    <strong>{corrigirOrtografiaUI(entry.item.product_name)}</strong>
+                    <p>
+                      {corrigirOrtografiaUI(entry.item.brand || "Sem marca")} | Estoque: {entry.item.stock} |{" "}
+                      {entry.alerts.map((alert) => alert.label).join(", ")}
+                    </p>
+                  </div>
+                  <button type="button" className="ghost" onClick={() => handlePrepareRestock(entry.item)}>
+                    Preparar reposicao
+                  </button>
+                </article>
+              ))}
+            </div>
+          </div>
+        ) : null}
         {activeSeasonalCampaign ? (
           <div className="seasonal-active-banner">
             <div>
@@ -1780,8 +2017,8 @@ function App() {
               <p>
                 {loading
                   ? "Atualizando resultados..."
-                  : items.length
-                    ? `Resultados na página: ${items.length}.`
+                  : displayedEntries.length
+                    ? `Resultados na página: ${displayedEntries.length}.`
                     : "Nenhum resultado para esse termo. Tente outro termo da campanha."}
               </p>
               <div className="seasonal-term-chips">
@@ -1803,10 +2040,10 @@ function App() {
           </div>
         ) : null}
 
-        {loading && !items.length ? <p>Carregando itens...</p> : null}
-        {!loading && !items.length ? <p>Nenhum item encontrado.</p> : null}
+        {loading && !displayedEntries.length ? <p>Carregando itens...</p> : null}
+        {!loading && !displayedEntries.length ? <p>Nenhum item encontrado para os filtros atuais.</p> : null}
 
-        {items.length ? (
+        {displayedEntries.length ? (
           <div className="table-wrap">
             <table>
               <thead>
@@ -1824,9 +2061,8 @@ function App() {
                 </tr>
               </thead>
               <tbody>
-                {items.map((item) => {
-                  const alerts = getItemAlerts(item);
-                  const isCritical = alerts.some((alert) => alert.level === "critical");
+                {displayedEntries.map(({ item, alerts, critical }) => {
+                  const isCritical = critical;
                   const rowClassName = isCritical
                     ? "row-alert-critical"
                     : alerts.length
@@ -1915,7 +2151,7 @@ function App() {
           </div>
         ) : null}
 
-        {items.length ? (
+        {displayedEntries.length ? (
           <div className="pager">
             <button
               type="button"
