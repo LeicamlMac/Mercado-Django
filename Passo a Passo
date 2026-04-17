@@ -1,0 +1,35 @@
+Passo a Passo - Correcao do conflito da API (branch feature/Thiago)
+
+1) Entendi o erro principal
+- O modelo `Expense` ja existia no codigo, mas a tabela nao existia no banco.
+- Isso gerava erro 500 na rota `/api/items/metrics/` com `no such table: api_expense`.
+
+2) Corrigi o tipo de movimentacao de vendas
+- Em `api/views.py`, troquei o filtro de `"OUT"` para `StockMovement.MOVEMENT_SELL`.
+- Motivo: no modelo, o tipo correto de venda eh `SELL`.
+
+3) Limpei import incorreto de URL
+- Em `api/urls.py`, removi o import de `Expense` vindo de `views`.
+- Esse import nao era usado como rota.
+
+4) Criei a migracao que faltava
+- Criei `api/migrations/0008_expense.py`.
+- Essa migracao cria a tabela `api_expense`.
+
+5) Apliquei a migracao no banco local
+- Rodei `python manage.py migrate`.
+- A migracao `api.0008_expense` foi aplicada com sucesso.
+
+6) Corrigi o motivo do estoque aparecendo 0
+- O frontend espera campos antigos: `total_variants`, `active_variants`, `total_stock`, `low_stock_count`.
+- A branch tinha mudado o retorno para `{ inventory, financial }`, e por isso o painel ficava zerado.
+- Em `api/views.py`, deixei o endpoint compativel com os dois formatos.
+
+7) Validacao final
+- `python manage.py check` OK.
+- `python manage.py test api` OK (10 testes).
+
+Resultado:
+- API sem erro de tabela ausente.
+- Metricas de estoque voltando no formato esperado pelo frontend.
+- Base pronta para subir na `feature/Thiago`.

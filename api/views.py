@@ -625,6 +625,7 @@ class ProductMetricsView(APIView):
         # 1. Métricas de Inventário (O que você já tem)
         inventory_data = ProductVariant.objects.aggregate(
             total_variants=Count("id"),
+            active_variants=Count("id", filter=Q(is_active=True)),
             total_stock=Sum("stock"),
             low_stock_count=Count("id", filter=Q(stock__lt=5)),
         )
@@ -632,8 +633,8 @@ class ProductMetricsView(APIView):
         # 2. Métricas Financeiras (O que o RF08 pede)
         # Soma total de vendas (Faturamento)
         faturamento = StockMovement.objects.filter(
-            movement_type="OUT" # Ou conforme seu modelo de Vendas
-        ).aggregate(total=Sum(F('units_delta') * F('variant__price'))).get("total") or 0
+            movement_type=StockMovement.MOVEMENT_SELL
+        ).aggregate(total=Sum(F("units_delta") * F("variant__price"))).get("total") or 0
         
         # Soma de despesas PAGAS (RF06)
         # Nota: Certifique-se de que seu modelo de Expense tenha o campo 'paga'
@@ -642,14 +643,22 @@ class ProductMetricsView(APIView):
 
         saldo_caixa = abs(faturamento) - despesas
 
-        return Response({
-            "inventory": inventory_data,
-            "financial": {
-                "faturamento_mensal": abs(faturamento),
-                "despesas_pagas": despesas,
-                "saldo_caixa": saldo_caixa
+        return Response(
+            {
+                # Backward compatible payload expected by current frontend.
+                "total_variants": inventory_data.get("total_variants") or 0,
+                "active_variants": inventory_data.get("active_variants") or 0,
+                "total_stock": inventory_data.get("total_stock") or 0,
+                "low_stock_count": inventory_data.get("low_stock_count") or 0,
+                # New grouped sections can be consumed by future screens.
+                "inventory": inventory_data,
+                "financial": {
+                    "faturamento_mensal": abs(faturamento),
+                    "despesas_pagas": despesas,
+                    "saldo_caixa": saldo_caixa,
+                },
             }
-        })
+        )
 
 
 class QuickEntryView(APIView):
