@@ -39,6 +39,20 @@ import {
   getCurrentMonthLabel,
 } from "./seasonalCampaigns";
 
+const UI_ORDERING_KEY = "mercado_ui_ordering";
+const UI_STATUS_FILTER_KEY = "mercado_ui_status_filter";
+const UI_ALERT_FILTER_KEY = "mercado_ui_alert_filter";
+const UI_MOVIMENTOS_LIMIT_KEY = "mercado_ui_movimentos_limit";
+
+function loadUiPreference(key, fallback) {
+  try {
+    const stored = localStorage.getItem(key);
+    return stored || fallback;
+  } catch {
+    return fallback;
+  }
+}
+
 function ThemeToggleButton({ theme, onToggle }) {
   return (
     <button type="button" className="theme-toggle" onClick={onToggle}>
@@ -84,12 +98,19 @@ function App() {
   const [searchApplied, setSearchApplied] = useState("");
   const [activeSeasonalCampaignId, setActiveSeasonalCampaignId] = useState("");
   const [activeSeasonalTerms, setActiveSeasonalTerms] = useState([]);
-  const [statusFilter, setStatusFilter] = useState("all");
-  const [alertFilter, setAlertFilter] = useState("all");
-  const [ordering, setOrdering] = useState(DEFAULT_ORDERING);
+  const [statusFilter, setStatusFilter] = useState(() =>
+    loadUiPreference(UI_STATUS_FILTER_KEY, "all")
+  );
+  const [alertFilter, setAlertFilter] = useState(() =>
+    loadUiPreference(UI_ALERT_FILTER_KEY, "all")
+  );
+  const [ordering, setOrdering] = useState(() =>
+    loadUiPreference(UI_ORDERING_KEY, DEFAULT_ORDERING)
+  );
   const [page, setPage] = useState(1);
   const [pageCount, setPageCount] = useState(1);
   const [loading, setLoading] = useState(false);
+  const [metricsLoading, setMetricsLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [restockQty, setRestockQty] = useState({});
   const [restockPackage, setRestockPackage] = useState({});
@@ -102,7 +123,8 @@ function App() {
   const [showOperacaoAdvanced, setShowOperacaoAdvanced] = useState(false);
   const [movimentos, setMovimentos] = useState([]);
   const [error, setError] = useState("");
-  const [toast, setToast] = useState("");
+  const [toast, setToast] = useState(null);
+  const [metricsUpdatedAt, setMetricsUpdatedAt] = useState("");
   const [catalogQuery, setCatalogQuery] = useState("");
   const [barcodeQuery, setBarcodeQuery] = useState("");
   const [catalogItems, setCatalogItems] = useState([]);
@@ -112,7 +134,9 @@ function App() {
   const [expandedCatalogGroups, setExpandedCatalogGroups] = useState([]);
   const [catalogBatchEntries, setCatalogBatchEntries] = useState([]);
   const [catalogBatchSaving, setCatalogBatchSaving] = useState(false);
-  const [movimentosLimit, setMovimentosLimit] = useState("12");
+  const [movimentosLimit, setMovimentosLimit] = useState(() =>
+    loadUiPreference(UI_MOVIMENTOS_LIMIT_KEY, "12")
+  );
   const [catalogUsageHistory, setCatalogUsageHistory] = useState(() =>
     loadCatalogUsageHistory()
   );
@@ -139,6 +163,28 @@ function App() {
   const toggleTheme = useCallback(() => {
     setTheme((prev) => (prev === "dark" ? "light" : "dark"));
   }, []);
+
+  const showToast = useCallback((message, type = "success") => {
+    setToast({ id: Date.now(), message, type });
+  }, []);
+
+  const clearInventoryFilters = useCallback(() => {
+    setSearch("");
+    setSearchApplied("");
+    setStatusFilter("all");
+    setAlertFilter("all");
+    setSetorAtivoId("all");
+    setPage(1);
+  }, []);
+
+  const notifyCatalogFallback = useCallback(
+    (meta) => {
+      if (meta && !meta.bluesoft_configurada) {
+        showToast("Bluesoft nao configurada neste terminal. Usando catalogo local.", "info");
+      }
+    },
+    [showToast]
+  );
 
   const resetCatalogAssistant = useCallback(() => {
     setCatalogQuery("");
@@ -490,13 +536,20 @@ function App() {
 
   const loadMetrics = useCallback(async () => {
     if (!session) return;
+    setMetricsLoading(true);
     try {
       const data = await apiRequest("/api/items/metrics/");
       setMetrics(data);
-    } catch {
-      // Optional in UI.
+      setMetricsUpdatedAt(new Date().toISOString());
+    } catch (metricsError) {
+      showToast(
+        metricsError?.message || "Nao foi possivel atualizar as metricas agora.",
+        "warning"
+      );
+    } finally {
+      setMetricsLoading(false);
     }
-  }, [session, apiRequest]);
+  }, [session, apiRequest, showToast]);
 
   const loadMovimentos = useCallback(async () => {
     if (!session) return;
@@ -594,6 +647,14 @@ function App() {
     }
   }, [session, apiRequest]);
 
+  const reloadDashboardData = useCallback(async () => {
+    await Promise.all([loadItems(), loadMetrics(), loadMovimentos()]);
+  }, [loadItems, loadMetrics, loadMovimentos]);
+
+  const scrollToSection = useCallback((targetRef) => {
+    targetRef?.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }, []);
+
   useEffect(() => {
     loadItems();
   }, [loadItems]);
@@ -614,10 +675,21 @@ function App() {
   }, [operacaoSearch, operacaoItems, operacaoForm.variant_id]);
 
   useEffect(() => {
-    if (!toast) return;
-    const timer = setTimeout(() => setToast(""), 2200);
+    try {
+      localStorage.setItem(UI_ORDERING_KEY, ordering);
+      localStorage.setItem(UI_STATUS_FILTER_KEY, statusFilter);
+      localStorage.setItem(UI_ALERT_FILTER_KEY, alertFilter);
+      localStorage.setItem(UI_MOVIMENTOS_LIMIT_KEY, movimentosLimit);
+    } catch {
+      // ignore localStorage errors
+    }
+  }, [ordering, statusFilter, alertFilter, movimentosLimit]);
+
+  useEffect(() => {
+    if (!toast?.id) return;
+    const timer = setTimeout(() => setToast(null), 3200);
     return () => clearTimeout(timer);
-  }, [toast]);
+  }, [toast?.id]);
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -635,6 +707,24 @@ function App() {
         event.preventDefault();
         inventorySearchRef.current?.focus();
       }
+      if (event.altKey && event.key === "1") {
+        event.preventDefault();
+        scrollToSection(quickEntrySectionRef);
+      }
+      if (event.altKey && event.key === "2") {
+        event.preventDefault();
+        scrollToSection(operationSectionRef);
+      }
+      if (event.altKey && event.key === "3") {
+        event.preventDefault();
+        scrollToSection(inventorySectionRef);
+      }
+      if (event.altKey && event.key.toLowerCase() === "r") {
+        event.preventDefault();
+        reloadDashboardData()
+          .then(() => showToast("Atualizacao rapida concluida.", "success"))
+          .catch(() => showToast("Nao foi possivel atualizar tudo agora.", "warning"));
+      }
       if (event.key === "Escape" && document.activeElement === inventorySearchRef.current) {
         setSearch("");
         setSearchApplied("");
@@ -644,7 +734,7 @@ function App() {
 
     window.addEventListener("keydown", onGlobalShortcut);
     return () => window.removeEventListener("keydown", onGlobalShortcut);
-  }, []);
+  }, [reloadDashboardData, scrollToSection, showToast]);
 
   useEffect(() => {
     loadOperacaoContext();
@@ -799,7 +889,7 @@ function App() {
       package_units: String(item.package_units || prev.package_units || "1"),
     }));
     registerCatalogUsage(item);
-    setToast("Produto aplicado ao formulário.");
+    showToast("Produto aplicado ao formulario.", "success");
   }
 
   const sortByNormalizedText = useCallback(
@@ -973,13 +1063,21 @@ function App() {
     };
   }, [metrics.total_variants, metrics.low_stock_count]);
 
+  const metricsUpdatedLabel = useMemo(() => {
+    if (!metricsUpdatedAt) return "Ainda nao atualizado";
+    return formatDateTimePtBr(metricsUpdatedAt);
+  }, [metricsUpdatedAt]);
+  const orderingLabel = useMemo(
+    () => ORDERING_OPTIONS.find((option) => option.value === ordering)?.label || "Padrao",
+    [ordering]
+  );
+
+  const isBusy = loading || metricsLoading || catalogLoading || catalogBatchSaving || saving;
+  const skeletonRows = useMemo(() => Array.from({ length: 6 }, (_, index) => index), []);
+
   const applyAlertFilter = useCallback((value) => {
     setPage(1);
     setAlertFilter(value);
-  }, []);
-
-  const scrollToSection = useCallback((targetRef) => {
-    targetRef?.current?.scrollIntoView({ behavior: "smooth", block: "start" });
   }, []);
 
   const handlePrepareRestock = useCallback(
@@ -995,9 +1093,9 @@ function App() {
         package_quantity: "1",
         notes: `Reposicao sugerida para ${corrigirOrtografiaUI(item?.product_name || "")}`,
       }));
-      setToast("Item pronto para reposicao na secao Operacao de estoque.");
+      showToast("Item pronto para reposicao na secao Operacao de estoque.", "info");
     },
-    [loadOperacaoItems]
+    [loadOperacaoItems, showToast]
   );
 
   function getGroupVariantOptions(group) {
@@ -1074,7 +1172,7 @@ function App() {
 
     applyCatalogItem(selected);
     setQuickForm((prev) => ({ ...prev, quantity: String(qty) }));
-    setToast("Marca e tamanho aplicados ao formulário.");
+    showToast("Marca e tamanho aplicados ao formulario.", "success");
   }
 
   function addCatalogBrandSelection(group) {
@@ -1117,7 +1215,7 @@ function App() {
       return updated;
     });
     registerCatalogUsage(selected);
-    setToast("Seleção adicionada ao lote.");
+    showToast("Selecao adicionada ao lote.", "success");
   }
 
   function resolveCatalogGroupChoice(group) {
@@ -1188,7 +1286,7 @@ function App() {
     await Promise.all([loadItems(), loadMetrics(), loadPresets()]);
     setCatalogBatchSaving(false);
     if (successCount) {
-      setToast(`${successCount} item(ns) do lote processado(s).`);
+      showToast(`${successCount} item(ns) do lote processado(s).`, "success");
     }
     if (failures.length) {
       setError(`Falhas no lote (${failures.length}): ${failures.slice(0, 2).join(" | ")}`);
@@ -1214,11 +1312,9 @@ function App() {
       if (item) {
         applyCatalogItem(item);
       } else {
-        setToast("Nenhum produto encontrado para esse código.");
+        showToast("Nenhum produto encontrado para esse codigo.", "warning");
       }
-      if (data.meta && !data.meta.bluesoft_configurada) {
-        setToast("Bluesoft não configurada neste terminal. Usando catálogo local.");
-      }
+      notifyCatalogFallback(data.meta);
     } catch (lookupError) {
       setError(lookupError.message);
     } finally {
@@ -1246,11 +1342,9 @@ function App() {
       setCatalogItems(data.items || []);
       setCatalogMeta(data.meta || EMPTY_CATALOG_META);
       if (!(data.items || []).length) {
-        setToast("Nenhum produto encontrado para essa busca.");
+        showToast("Nenhum produto encontrado para essa busca.", "warning");
       }
-      if (data.meta && !data.meta.bluesoft_configurada) {
-        setToast("Bluesoft não configurada neste terminal. Usando catálogo local.");
-      }
+      notifyCatalogFallback(data.meta);
     } catch (lookupError) {
       setError(lookupError.message);
     } finally {
@@ -1272,7 +1366,7 @@ function App() {
         method: "POST",
         body: JSON.stringify({ package_name: packageName, package_quantity: qty }),
       });
-      setToast("Reposicao realizada com sucesso.");
+      showToast("Reposicao realizada com sucesso.", "success");
       setRestockQty((prev) => ({ ...prev, [itemId]: 1 }));
       await Promise.all([loadItems(), loadMetrics()]);
     } catch (restockError) {
@@ -1309,7 +1403,7 @@ function App() {
         method: "POST",
         body: JSON.stringify(payload),
       });
-      setToast("Movimentação registrada.");
+      showToast("Movimentacao registrada.", "success");
       setOperacaoForm((prev) => ({ ...emptyOperacaoForm, tipo: prev.tipo }));
       await Promise.all([loadItems(), loadMetrics(), loadMovimentos()]);
     } catch (operationError) {
@@ -1398,23 +1492,26 @@ function App() {
       </header>
 
       <section className="metrics">
-        <article className="metric-card">
+        <article className={metricsLoading ? "metric-card loading" : "metric-card"}>
           <span>Total de variacoes</span>
-          <strong>{metrics.total_variants}</strong>
+          <strong>{metricsLoading ? "..." : metrics.total_variants}</strong>
         </article>
-        <article className="metric-card">
+        <article className={metricsLoading ? "metric-card loading" : "metric-card"}>
           <span>Ativas</span>
-          <strong>{metrics.active_variants}</strong>
+          <strong>{metricsLoading ? "..." : metrics.active_variants}</strong>
         </article>
-        <article className="metric-card">
+        <article className={metricsLoading ? "metric-card loading" : "metric-card"}>
           <span>Estoque total</span>
-          <strong>{metrics.total_stock}</strong>
+          <strong>{metricsLoading ? "..." : metrics.total_stock}</strong>
         </article>
-        <article className="metric-card">
+        <article className={metricsLoading ? "metric-card loading" : "metric-card"}>
           <span>Baixo estoque</span>
-          <strong>{metrics.low_stock_count}</strong>
+          <strong>{metricsLoading ? "..." : metrics.low_stock_count}</strong>
         </article>
       </section>
+      <p className="hint inline-hint">
+        Ultima atualizacao de metricas: <strong>{metricsUpdatedLabel}</strong>
+      </p>
 
       <section className="panel dashboard-panel">
         <div className="toolbar">
@@ -1456,7 +1553,13 @@ function App() {
           <button type="button" className="ghost" onClick={() => applyAlertFilter("critical")}>
             Mostrar so criticos
           </button>
+          <button type="button" className="ghost" onClick={reloadDashboardData}>
+            Atualizar painel
+          </button>
         </div>
+        <p className="muted keyboard-hints">
+          Atalhos: <code>/</code> buscar itens, <code>Alt+1</code> cadastro rapido, <code>Alt+2</code> operacao, <code>Alt+3</code> inventario, <code>Alt+R</code> atualizar painel.
+        </p>
       </section>
 
       <section className="panel">
@@ -1764,6 +1867,14 @@ function App() {
               </strong>
             </article>
           </div>
+          {saving ? (
+            <div className="inline-progress" role="status" aria-live="polite">
+              <span>Registrando movimentacao...</span>
+              <div className="progress-track">
+                <div className="progress-fill animated" style={{ width: "100%" }} />
+              </div>
+            </div>
+          ) : null}
           <form className="form-grid" onSubmit={handleOperacaoEstoque}>
             <label>
               Buscar item
@@ -1956,6 +2067,7 @@ function App() {
             <span>{`Visiveis: ${inventorySummary.visible}/${inventorySummary.total}`}</span>
             <span>{`Criticos: ${inventorySummary.critical}`}</span>
             <span>{`Avisos: ${inventorySummary.warning}`}</span>
+            <span className="ordering-chip">{`Ordenacao: ${orderingLabel}`}</span>
           </div>
           <div className="inventory-filter-chips">
             <button
@@ -2040,8 +2152,64 @@ function App() {
           </div>
         ) : null}
 
-        {loading && !displayedEntries.length ? <p>Carregando itens...</p> : null}
-        {!loading && !displayedEntries.length ? <p>Nenhum item encontrado para os filtros atuais.</p> : null}
+        {error ? (
+          <div className="feedback error inline-feedback">
+            <p>Nao foi possivel carregar os itens agora: {error}</p>
+            <button type="button" className="ghost" onClick={reloadDashboardData}>
+              Tentar novamente
+            </button>
+          </div>
+        ) : null}
+
+        {loading && !displayedEntries.length ? (
+          <div className="table-wrap loading-state">
+            <table>
+              <thead>
+                <tr>
+                  <th>Categoria</th>
+                  <th>Setores</th>
+                  <th>Produto</th>
+                  <th>Marca</th>
+                  <th>Tipo</th>
+                  <th>Tamanho</th>
+                  <th>Preco</th>
+                  <th>Estoque</th>
+                  <th>Alertas</th>
+                  <th>Acao rapida</th>
+                </tr>
+              </thead>
+              <tbody>
+                {skeletonRows.map((row) => (
+                  <tr key={`skeleton-row-${row}`}>
+                    <td colSpan={10}>
+                      <div className="skeleton-line" />
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : null}
+        {!loading && !displayedEntries.length ? (
+          <div className="empty-state">
+            <h3>Nenhum item para exibir</h3>
+            <p>
+              Ajuste os filtros ou limpe a busca para visualizar o inventario completo.
+            </p>
+            <div className="actions">
+              <button
+                type="button"
+                className="ghost"
+                onClick={clearInventoryFilters}
+              >
+                Limpar filtros
+              </button>
+              <button type="button" onClick={reloadDashboardData}>
+                Atualizar agora
+              </button>
+            </div>
+          </div>
+        ) : null}
 
         {displayedEntries.length ? (
           <div className="table-wrap">
@@ -2220,8 +2388,15 @@ function App() {
         ) : null}
       </section>
 
-      {error ? <p className="feedback error">{error}</p> : null}
-      {toast ? <p className="feedback success">{toast}</p> : null}
+      {isBusy ? <p className="muted global-status">Operacao em andamento...</p> : null}
+      {toast ? (
+        <div className={`feedback toast ${toast.type || "success"}`} role="status" aria-live="polite">
+          <p>{toast.message}</p>
+          <button type="button" className="ghost" onClick={() => setToast(null)}>
+            Fechar
+          </button>
+        </div>
+      ) : null}
       </main>
     </>
   );

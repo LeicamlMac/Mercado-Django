@@ -1,10 +1,9 @@
 ﻿import re
-import unicodedata
 from django.contrib.auth.models import Group
 
 from django.db import transaction
-from django.db.models import Count, F, Prefetch, Q, Sum
-from django.db.models.functions import Lower
+from django.db.models import Count, F, Prefetch, Q, Sum, Value
+from django.db.models.functions import Lower, Replace
 from rest_framework import filters, status, viewsets
 from rest_framework.pagination import PageNumberPagination
 from rest_framework.permissions import AllowAny, IsAuthenticated
@@ -129,6 +128,32 @@ DEPARTMENT_NAMES_PREFETCH = Prefetch(
     queryset=Department.objects.only("id", "name"),
 )
 
+PTBR_REPLACEMENTS = (
+    ("ç", "c"),
+    ("á", "a"),
+    ("à", "a"),
+    ("â", "a"),
+    ("ã", "a"),
+    ("ä", "a"),
+    ("é", "e"),
+    ("è", "e"),
+    ("ê", "e"),
+    ("ë", "e"),
+    ("í", "i"),
+    ("ì", "i"),
+    ("î", "i"),
+    ("ï", "i"),
+    ("ó", "o"),
+    ("ò", "o"),
+    ("ô", "o"),
+    ("õ", "o"),
+    ("ö", "o"),
+    ("ú", "u"),
+    ("ù", "u"),
+    ("û", "u"),
+    ("ü", "u"),
+)
+
 
 def _signed_units(movement_type, units):
     if movement_type in {StockMovement.MOVEMENT_RECEIVE, StockMovement.MOVEMENT_RETURN}:
@@ -138,10 +163,11 @@ def _signed_units(movement_type, units):
     return units
 
 
-def _ptbr_sort_key(value):
-    text = str(value or "").strip().casefold()
-    normalized = unicodedata.normalize("NFD", text)
-    return "".join(char for char in normalized if unicodedata.category(char) != "Mn")
+def _ptbr_sort_expr(field_name):
+    expr = Lower(F(field_name))
+    for source, target in PTBR_REPLACEMENTS:
+        expr = Replace(expr, Value(source), Value(target))
+    return expr
 
 
 def _resolve_units(payload, variant):
@@ -640,25 +666,26 @@ class ProductVariantViewSet(viewsets.ModelViewSet):
             return super().list(request, *args, **kwargs)
 
         queryset = self.filter_queryset(self.get_queryset())
-        reverse = ordering_param.startswith("-")
-        items = list(queryset)
-        items.sort(
-            key=lambda variant: (
-                _ptbr_sort_key(variant.product.name),
-                _ptbr_sort_key(variant.product.brand),
-                _ptbr_sort_key(variant.variant_label),
-                _ptbr_sort_key(variant.package_size),
-                variant.id,
-            ),
-            reverse=reverse,
+        prefix = "-" if ordering_param.startswith("-") else ""
+        queryset = queryset.annotate(
+            product_name_sort=_ptbr_sort_expr("product__name"),
+            product_brand_sort=_ptbr_sort_expr("product__brand"),
+            variant_label_sort=_ptbr_sort_expr("variant_label"),
+            package_size_sort=_ptbr_sort_expr("package_size"),
+        ).order_by(
+            f"{prefix}product_name_sort",
+            f"{prefix}product_brand_sort",
+            f"{prefix}variant_label_sort",
+            f"{prefix}package_size_sort",
+            f"{prefix}id",
         )
 
-        page = self.paginate_queryset(items)
+        page = self.paginate_queryset(queryset)
         if page is not None:
             serializer = self.get_serializer(page, many=True)
             return self.get_paginated_response(serializer.data)
 
-        serializer = self.get_serializer(items, many=True)
+        serializer = self.get_serializer(queryset, many=True)
         return Response(serializer.data)
 
 
@@ -767,12 +794,21 @@ class ProductMetricsView(APIView):
             total_stock=Sum("stock"),
             low_stock_count=Count("id", filter=Q(stock__lt=5)),
         )
+        inventory = {
+            "total_variants": data.get("total_variants") or 0,
+            "active_variants": data.get("active_variants") or 0,
+            "total_stock": data.get("total_stock") or 0,
+            "low_stock_count": data.get("low_stock_count") or 0,
+        }
         return Response(
             {
-                "total_variants": data.get("total_variants") or 0,
-                "active_variants": data.get("active_variants") or 0,
-                "total_stock": data.get("total_stock") or 0,
-                "low_stock_count": data.get("low_stock_count") or 0,
+                # Backward-compatible flat fields consumed by the current frontend.
+                "total_variants": inventory["total_variants"],
+                "active_variants": inventory["active_variants"],
+                "total_stock": inventory["total_stock"],
+                "low_stock_count": inventory["low_stock_count"],
+                # Grouped format for progressive migration in clients.
+                "inventory": inventory,
             }
         )
 
@@ -1220,6 +1256,8 @@ class CurrentSessionView(APIView):
                 ),
             }
         )
+
+
 
 
 

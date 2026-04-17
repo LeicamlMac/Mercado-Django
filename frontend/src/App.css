@@ -184,12 +184,30 @@ h1 {
   background: linear-gradient(90deg, var(--blue-700), var(--blue-600));
 }
 
+.progress-fill.animated {
+  background: linear-gradient(90deg, var(--blue-700), var(--blue-600), var(--blue-700));
+  background-size: 220% 100%;
+  animation: pulse-progress 1.2s linear infinite;
+}
+
 .quick-actions-strip {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
   padding-top: 8px;
   border-top: 1px dashed var(--line);
+}
+
+.keyboard-hints {
+  margin: 10px 0 0;
+  font-size: 12px;
+}
+
+.keyboard-hints code {
+  background: var(--surface-3);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 1px 5px;
 }
 
 .operation-cards {
@@ -221,6 +239,21 @@ h1 {
   color: var(--heading-soft);
 }
 
+.inline-progress {
+  margin: 0 0 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  padding: 10px;
+}
+
+.inline-progress span {
+  display: block;
+  color: var(--muted);
+  font-size: 12px;
+  margin-bottom: 8px;
+}
+
 .metric-card {
   background: var(--surface-1);
   border: 1px solid var(--line);
@@ -241,6 +274,10 @@ h1 {
   margin-top: 10px;
   font-size: 34px;
   letter-spacing: -0.03em;
+}
+
+.metric-card.loading strong {
+  color: var(--muted);
 }
 
 .panel {
@@ -445,6 +482,11 @@ button:disabled {
   font-weight: 700;
 }
 
+.ordering-chip {
+  border-color: color-mix(in srgb, var(--line) 65%, var(--blue-600) 35%);
+  background: color-mix(in srgb, var(--surface-2) 70%, var(--blue-050) 30%);
+}
+
 .inventory-filter-chips {
   display: flex;
   flex-wrap: wrap;
@@ -513,6 +555,37 @@ button:disabled {
   border-radius: var(--radius-md);
   max-height: 460px;
   background: var(--surface-1);
+}
+
+.loading-state {
+  max-height: none;
+}
+
+.skeleton-line {
+  width: 100%;
+  height: 14px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, var(--surface-3), var(--surface-2), var(--surface-3));
+  background-size: 200% 100%;
+  animation: skeleton-move 1.3s ease-in-out infinite;
+}
+
+.empty-state {
+  border: 1px dashed var(--line);
+  border-radius: var(--radius-md);
+  background: var(--surface-2);
+  padding: 16px;
+  margin-top: 8px;
+}
+
+.empty-state h3 {
+  margin: 0 0 8px;
+  font-size: 16px;
+}
+
+.empty-state p {
+  margin: 0 0 12px;
+  color: var(--muted);
 }
 
 table {
@@ -675,10 +748,57 @@ tr:hover td {
   color: var(--success);
 }
 
+.feedback.toast {
+  position: sticky;
+  bottom: 14px;
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.feedback.toast p {
+  margin: 0;
+}
+
+.feedback.toast.info {
+  border: 1px solid color-mix(in srgb, var(--blue-600) 38%, var(--line) 62%);
+  background: color-mix(in srgb, var(--blue-050) 80%, var(--surface-1) 20%);
+  color: var(--blue-700);
+}
+
+.feedback.toast.warning {
+  border: 1px solid color-mix(in srgb, var(--warning) 45%, var(--line) 55%);
+  background: color-mix(in srgb, var(--warning-soft) 82%, var(--surface-1) 18%);
+  color: var(--warning);
+}
+
+.feedback.toast.success {
+  border: 1px solid color-mix(in srgb, var(--success) 42%, var(--line) 58%);
+  background: color-mix(in srgb, var(--success-soft) 80%, var(--surface-1) 20%);
+  color: var(--success);
+}
+
+.inline-feedback {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+}
+
+.inline-feedback p {
+  margin: 0;
+}
+
 .hint {
   margin-top: 0;
   color: var(--muted);
   font-size: 13px;
+}
+
+.inline-hint {
+  margin: -2px 0 14px;
 }
 
 .catalog-assistant {
@@ -860,6 +980,10 @@ tr:hover td {
   font-size: 13px;
 }
 
+.global-status {
+  margin: 10px 0;
+}
+
 .operation-helper {
   display: block;
   min-height: 18px;
@@ -1016,5 +1140,29 @@ html[data-theme="dark"] .row-alert-critical td {
   .seasonal-active-banner {
     flex-direction: column;
     align-items: stretch;
+  }
+
+  .feedback.toast,
+  .inline-feedback {
+    flex-direction: column;
+    align-items: stretch;
+  }
+}
+
+@keyframes skeleton-move {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
+}
+
+@keyframes pulse-progress {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -20% 0;
   }
 }

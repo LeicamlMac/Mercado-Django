@@ -142,6 +142,39 @@ class CatalogApiTests(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.data["count"], 1)
 
+    def test_product_metrics_contract_has_flat_and_grouped_inventory(self):
+        self.authenticate(self.manager)
+        response = self.client.get(reverse("product-metrics"))
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        self.assertIn("total_variants", response.data)
+        self.assertIn("active_variants", response.data)
+        self.assertIn("total_stock", response.data)
+        self.assertIn("low_stock_count", response.data)
+        self.assertIn("inventory", response.data)
+
+        inventory = response.data["inventory"]
+        self.assertEqual(response.data["total_variants"], inventory["total_variants"])
+        self.assertEqual(response.data["active_variants"], inventory["active_variants"])
+        self.assertEqual(response.data["total_stock"], inventory["total_stock"])
+        self.assertEqual(response.data["low_stock_count"], inventory["low_stock_count"])
+
+    def test_product_metrics_updates_after_receive_stock(self):
+        self.authenticate(self.manager)
+        receive_response = self._post_json(
+            "receive-stock",
+            {
+                "variant_id": self.variant.id,
+                "package_id": self.bundle_package.id,
+                "package_quantity": 1,
+            },
+        )
+        self.assertEqual(receive_response.status_code, status.HTTP_200_OK)
+
+        metrics_response = self.client.get(reverse("product-metrics"))
+        self.assertEqual(metrics_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(metrics_response.data["total_stock"], 30)
+
     def test_items_list_ordering_az_ignores_accents_and_cedilha(self):
         self.authenticate(self.manager)
         category = self.category
