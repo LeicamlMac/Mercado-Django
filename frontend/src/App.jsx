@@ -1,4 +1,4 @@
-﻿import { useCallback, useEffect, useMemo, useState } from "react";
+﻿import { useCallback, useEffect, useState } from "react";
 import "./App.css";
 
 const STORAGE_KEY = "mercado_auth_tokens";
@@ -13,14 +13,6 @@ const ORDERING_OPTIONS = [
   { value: "price", label: "Menor preço" },
 ];
 
-const STATUS_FILTER_OPTIONS = [
-  { value: "all", label: "Todos" },
-  { value: "true", label: "Ativos" },
-  { value: "false", label: "Inativos" },
-];
-
-const MOVIMENTO_LIMIT_OPTIONS = ["12", "24", "50"];
-
 const MOVIMENTO_ENDPOINTS = {
   RECEIVE: "/api/items/receive/",
   SELL: "/api/items/sell/",
@@ -30,1809 +22,346 @@ const MOVIMENTO_ENDPOINTS = {
 const emptyQuickForm = {
   department_names: [],
   category_name: "",
-  product_name: "",
+  name: "",
   brand: "",
-  variant_label: "",
-  package_size: "",
-  package_name: "UNIDADE",
-  package_units: "1",
+  variant_label: "Padrão",
+  package_size: "Unidade",
   price: "",
-  quantity: "1",
+  initial_stock: 0,
 };
 
-const emptyOperacaoForm = {
-  variant_id: "",
-  tipo: "RECEIVE",
-  package_name: "UNIDADE",
-  package_quantity: "1",
-  quantity_units: "1",
-  notes: "",
-};
+function formatPrice(val) {
+  const n = parseFloat(val);
+  return isNaN(n) ? "0,00" : n.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+function formatDateTimePtBr(isoStr) {
+  if (!isoStr) return "-";
+  const d = new Date(isoStr);
+  return d.toLocaleString("pt-BR");
+}
+
+function corrigirOrtografiaUI(texto) {
+  if (!texto) return "";
+  let t = texto.replace(/laticinios/gi, "Laticínios");
+  t = t.replace(/padaria/gi, "Padaria");
+  t = t.replace(/higiene pessoal/gi, "Higiene Pessoal");
+  t = t.replace(/bebidas/gi, "Bebidas");
+  return t;
+}
 
 const movimentoLabel = {
-  RECEIVE: "Recebimento",
+  RECEIVE: "Entrada",
   SELL: "Venda",
   ADJUST: "Ajuste",
-  LOSS: "Perda",
-  RETURN: "Devolução",
+  INITIAL: "Início",
 };
 
-const SETORES_PADRAO = [
-  "Mercearia",
-  "Laticinios",
-  "Bebidas",
-  "Carnes",
-  "Doces",
-  "Higiene",
-  "Higiene Pessoal",
-  "Limpeza",
-  "Padaria",
-  "Congelados",
-];
-
-const EMPTY_CATALOG_META = {
-  bluesoft_configurada: false,
-  resultados_bluesoft: 0,
-  resultados_locais: 0,
-  fonte_item: "",
-};
-
-function ThemeToggleButton({ theme, onToggle }) {
-  return (
-    <button type="button" className="theme-toggle" onClick={onToggle}>
-      {theme === "dark" ? "Claro" : "Escuro"}
-    </button>
-  );
-}
-
-function normalizarTexto(value) {
-  return (value || "")
-    .toLowerCase()
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .trim();
-}
-
-function corrigirOrtografiaUI(value) {
-  let text = String(value || "").trim();
-  if (!text) return "";
-
-  const substitutions = [
-    [/Laticinios/gi, "Laticínios"],
-    [/Higienico/gi, "Higiênico"],
-    [/Acucar/gi, "Açúcar"],
-    [/Cafe/gi, "Café"],
-    [/Limao/gi, "Limão"],
-    [/Maracuja/gi, "Maracujá"],
-    [/Pao/gi, "Pão"],
-    [/Sabao em Po/gi, "Sabão em Pó"],
-    [/Sabao/gi, "Sabão"],
-    [/Agua Sanitaria/gi, "Água Sanitária"],
-    [/Agua/gi, "Água"],
-    [/Linguica/gi, "Linguiça"],
-    [/Anticaries/gi, "Anticáries"],
-    [/Sem Acucar/gi, "Sem Açúcar"],
-    [/Liquido/gi, "Líquido"],
-    [/Hidratacao/gi, "Hidratação"],
-    [/Reconstrucao/gi, "Reconstrução"],
-    [/Maca\\b/gi, "Maçã"],
-    [/Elegê/gi, "Elegê"],
-    [/Feijao-de-corda/gi, "Feijão-de-corda"],
-    [/Feijao/gi, "Feijão"],
-    [/Parboilizado/gi, "Parboilizado"],
-  ];
-  for (const [pattern, replacement] of substitutions) {
-    text = text.replace(pattern, replacement);
-  }
-  return text;
-}
-
-function tamanhoOrdenacao(value) {
-  const text = normalizarTexto(value);
-  const match = text.match(/(\d+(?:\.\d+)?)\s*(kg|g|l|ml|un)$/i);
-  if (!match) return [9, text];
-  const number = Number(match[1]);
-  const unit = match[2];
-  if (unit === "kg") return [0, number * 1000];
-  if (unit === "g") return [0, number];
-  if (unit === "l") return [1, number * 1000];
-  if (unit === "ml") return [1, number];
-  if (unit === "un") return [2, number];
-  return [9, text];
-}
-
-function limparTipoArroz(productName, variantLabel) {
-  const produto = normalizarTexto(productName);
-  const rotulo = (variantLabel || "").trim();
-  if (!rotulo) return "";
-  if (!produto.includes("arroz")) return rotulo;
-  return rotulo.replace(/\btipo\s*\d+\b/gi, "").replace(/\s{2,}/g, " ").trim();
-}
-
-function regraPossuiProduto(regra) {
-  return (regra?.products || []).length > 0;
-}
-
-function regraCombinaProduto(regra, nomeProdutoNormalizado) {
-  if (!nomeProdutoNormalizado) return false;
-  return (regra?.products || []).some((item) => {
-    const produtoRegra = normalizarTexto(item);
-    return (
-      produtoRegra === nomeProdutoNormalizado ||
-      nomeProdutoNormalizado.includes(produtoRegra) ||
-      produtoRegra.includes(nomeProdutoNormalizado)
-    );
+export default function App() {
+  const [tokens, setTokens] = useState(() => {
+    const saved = localStorage.getItem(STORAGE_KEY);
+    return saved ? JSON.parse(saved) : null;
   });
-}
 
-function loadStoredTokens() {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    return raw ? JSON.parse(raw) : null;
-  } catch {
-    return null;
-  }
-}
-
-function saveStoredTokens(tokens) {
-  if (!tokens) {
-    localStorage.removeItem(STORAGE_KEY);
-    return;
-  }
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(tokens));
-}
-
-function loadStoredTheme() {
-  try {
-    const saved = localStorage.getItem(THEME_STORAGE_KEY);
-    if (saved === "light" || saved === "dark") return saved;
-  } catch {
-    // ignore and fallback
-  }
-  return window.matchMedia?.("(prefers-color-scheme: dark)").matches ? "dark" : "light";
-}
-
-function formatCurrency(value) {
-  return `R$ ${Number(value || 0).toFixed(2)}`;
-}
-
-function formatDateTimePtBr(value) {
-  if (!value) return "-";
-  return new Date(value).toLocaleString("pt-BR");
-}
-
-async function requestJson(path, options = {}) {
-  const response = await fetch(path, options);
-  const body = await response.json().catch(() => ({}));
-
-  if (!response.ok) {
-    if (typeof body?.detail === "string") {
-      throw new Error(body.detail);
-    }
-    if (typeof body === "object" && body !== null) {
-      const firstError = Object.values(body).flat()[0];
-      if (typeof firstError === "string") {
-        throw new Error(firstError);
-      }
-    }
-    throw new Error("Não foi possível concluir a requisição.");
-  }
-
-  return body;
-}
-
-function App() {
-  const [theme, setTheme] = useState(() => loadStoredTheme());
-  const [tokens, setTokens] = useState(() => loadStoredTokens());
-  const [session, setSession] = useState(null);
-  const [authLoading, setAuthLoading] = useState(true);
-  const [authError, setAuthError] = useState("");
-  const [loginForm, setLoginForm] = useState({ username: "", password: "" });
-  const [loginLoading, setLoginLoading] = useState(false);
-
+  const [activeTab, setActiveTab] = useState("estoque");
+  const [theme, setTheme] = useState(() => localStorage.getItem(THEME_STORAGE_KEY) || "light");
   const [items, setItems] = useState([]);
-  const [metrics, setMetrics] = useState({
-    total_variants: 0,
-    active_variants: 0,
-    total_stock: 0,
-    low_stock_count: 0,
-  });
-  const [presets, setPresets] = useState({
-    departments: [],
-    categories: [],
-    products: [],
-    brands: [],
-    variant_labels: [],
-    package_sizes: ["1KG", "2KG", "5KG"],
-    package_names: ["UNIDADE", "FARDO", "CAIXA"],
-    product_rules: [],
-  });
-
-  const [quickForm, setQuickForm] = useState(emptyQuickForm);
-  const [setorAtivoId, setSetorAtivoId] = useState("all");
-  const [setores, setSetores] = useState([]);
-  const [search, setSearch] = useState("");
-  const [searchApplied, setSearchApplied] = useState("");
-  const [statusFilter, setStatusFilter] = useState("all");
-  const [ordering, setOrdering] = useState(DEFAULT_ORDERING);
-  const [page, setPage] = useState(1);
-  const [pageCount, setPageCount] = useState(1);
-  const [loading, setLoading] = useState(false);
-  const [saving, setSaving] = useState(false);
-  const [restockQty, setRestockQty] = useState({});
-  const [restockPackage, setRestockPackage] = useState({});
-  const [operacaoForm, setOperacaoForm] = useState(emptyOperacaoForm);
-  const [operacaoItems, setOperacaoItems] = useState([]);
-  const [operacaoSearch, setOperacaoSearch] = useState("");
-  const [operacaoSearching, setOperacaoSearching] = useState(false);
-  const [operacaoContextLoading, setOperacaoContextLoading] = useState(false);
-  const [operacaoLastMovement, setOperacaoLastMovement] = useState(null);
-  const [showOperacaoAdvanced, setShowOperacaoAdvanced] = useState(false);
   const [movimentos, setMovimentos] = useState([]);
-  const [error, setError] = useState("");
-  const [toast, setToast] = useState("");
-  const [catalogQuery, setCatalogQuery] = useState("");
-  const [barcodeQuery, setBarcodeQuery] = useState("");
-  const [catalogItems, setCatalogItems] = useState([]);
-  const [catalogLoading, setCatalogLoading] = useState(false);
-  const [catalogMeta, setCatalogMeta] = useState(EMPTY_CATALOG_META);
-  const [catalogChoices, setCatalogChoices] = useState({});
-  const [expandedCatalogGroups, setExpandedCatalogGroups] = useState([]);
-  const [catalogBatchEntries, setCatalogBatchEntries] = useState([]);
-  const [catalogBatchSaving, setCatalogBatchSaving] = useState(false);
-  const [movimentosLimit, setMovimentosLimit] = useState("12");
+  const [metrics, setMetrics] = useState(null);
+  const [search, setSearch] = useState("");
+  const [ordering, setOrdering] = useState(DEFAULT_ORDERING);
+  const [movLimit, setMovLimit] = useState("12");
+  const [quickForm, setQuickForm] = useState(emptyQuickForm);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
+  const [toast, setToast] = useState(null);
 
   useEffect(() => {
     document.documentElement.setAttribute("data-theme", theme);
-    try {
-      localStorage.setItem(THEME_STORAGE_KEY, theme);
-    } catch {
-      // ignore localStorage errors
-    }
+    localStorage.setItem(THEME_STORAGE_KEY, theme);
   }, [theme]);
 
-  const toggleTheme = useCallback(() => {
-    setTheme((prev) => (prev === "dark" ? "light" : "dark"));
-  }, []);
-
-  const resetCatalogAssistant = useCallback(() => {
-    setCatalogQuery("");
-    setCatalogItems([]);
-    setCatalogMeta(EMPTY_CATALOG_META);
-  }, []);
-
-  const handleSetorTodos = useCallback(() => {
-    setPage(1);
-    setSetorAtivoId("all");
-    resetCatalogAssistant();
-    setQuickForm((prev) => ({
-      ...prev,
-      department_names: [],
-      category_name: "",
-      product_name: "",
-      brand: "",
-      variant_label: "",
-    }));
-  }, [resetCatalogAssistant]);
-
-  const handleSetorSelect = useCallback(
-    (setorId) => {
-      setPage(1);
-      setSetorAtivoId(String(setorId));
-      resetCatalogAssistant();
-    },
-    [resetCatalogAssistant]
-  );
-
-  const regraProdutoAtual = useMemo(() => {
-    const nomeProduto = normalizarTexto(quickForm.product_name);
-    const setorAtivoNome =
-      setorAtivoId === "all"
-        ? ""
-        : normalizarTexto(setores.find((s) => String(s.id) === String(setorAtivoId))?.name);
-    const setoresSelecionados = (quickForm.department_names || []).map(normalizarTexto);
-
-    const regras = presets.product_rules || [];
-    const porProduto = regras.filter((regra) => regraCombinaProduto(regra, nomeProduto));
-    if (porProduto.length) {
-      if (setorAtivoNome) {
-        const porSetorAtivo = porProduto.find((regra) =>
-          (regra.departments || []).map(normalizarTexto).includes(setorAtivoNome)
-        );
-        if (porSetorAtivo) return porSetorAtivo;
-      }
-
-      const porSetorSelecionado = porProduto.find((regra) =>
-        (regra.departments || [])
-          .map(normalizarTexto)
-          .some((dep) => setoresSelecionados.includes(dep))
-      );
-      return porSetorSelecionado || porProduto[0];
+  useEffect(() => {
+    if (toast || error) {
+      const timer = setTimeout(() => { setToast(null); setError(null); }, 3000);
+      return () => clearTimeout(timer);
     }
-
-    const regrasGenericas = regras.filter((regra) => !regraPossuiProduto(regra));
-    if (setorAtivoNome) {
-      const regraSetorAtivo = regrasGenericas.find((regra) =>
-        (regra.departments || []).map(normalizarTexto).includes(setorAtivoNome)
-      );
-      if (regraSetorAtivo) return regraSetorAtivo;
-    }
-
-    const regraSetorSelecionado = regrasGenericas.find((regra) =>
-      (regra.departments || [])
-        .map(normalizarTexto)
-        .some((dep) => setoresSelecionados.includes(dep))
-    );
-    return regraSetorSelecionado || null;
-  }, [
-    quickForm.product_name,
-    quickForm.department_names,
-    presets.product_rules,
-    setorAtivoId,
-    setores,
-  ]);
-
-  const catalogBrandGroups = useMemo(() => {
-    const groups = new Map();
-    const seen = new Set();
-
-    for (const item of catalogItems || []) {
-      const cleanedVariant = limparTipoArroz(item?.product_name, item?.variant_label) || "Tradicional";
-      const normalizedProduct = normalizarTexto(item?.product_name);
-      const normalizedBrand = normalizarTexto(item?.brand);
-      const normalizedVariant = normalizarTexto(cleanedVariant);
-      const normalizedSize = normalizarTexto(item?.package_size);
-      const dedupKey = `${normalizedProduct}|${normalizedBrand}|${normalizedVariant}|${normalizedSize}`;
-      if (seen.has(dedupKey)) continue;
-      seen.add(dedupKey);
-
-      const groupKey = `${normalizedProduct}|${normalizedBrand}`;
-      const option = {
-        ...item,
-        variant_label: cleanedVariant,
-      };
-      if (!groups.has(groupKey)) {
-        groups.set(groupKey, {
-          key: groupKey,
-          product_name: item?.product_name || "",
-          brand: item?.brand || "",
-          category: item?.category || "",
-          source: item?.source || "",
-          options: [option],
-        });
-      } else {
-        groups.get(groupKey).options.push(option);
-      }
-    }
-
-    const list = Array.from(groups.values()).map((group) => {
-      group.options.sort((a, b) => {
-        const av = normalizarTexto(a.variant_label);
-        const bv = normalizarTexto(b.variant_label);
-        if (av !== bv) return av.localeCompare(bv, "pt-BR");
-        const [ag, avn] = tamanhoOrdenacao(a.package_size);
-        const [bg, bvn] = tamanhoOrdenacao(b.package_size);
-        if (ag !== bg) return ag - bg;
-        if (avn !== bvn) return avn - bvn;
-        return normalizarTexto(a.package_size).localeCompare(normalizarTexto(b.package_size), "pt-BR");
-      });
-      return group;
-    });
-
-    list.sort((a, b) => {
-      const ap = normalizarTexto(a.product_name);
-      const bp = normalizarTexto(b.product_name);
-      if (ap !== bp) return ap.localeCompare(bp, "pt-BR");
-      return normalizarTexto(a.brand).localeCompare(normalizarTexto(b.brand), "pt-BR");
-    });
-    return list;
-  }, [catalogItems]);
-
-  const operacaoItemSelecionado = useMemo(() => {
-    const id = Number(operacaoForm.variant_id || 0);
-    if (!id) return null;
-    return operacaoItems.find((item) => Number(item.id) === id) || null;
-  }, [operacaoForm.variant_id, operacaoItems]);
-
-  const operacaoPackageOptions = useMemo(() => {
-    const options = new Set(["UNIDADE", ...(presets.package_names || [])]);
-    (operacaoItemSelecionado?.packages || []).forEach((name) => options.add(name));
-    return Array.from(options);
-  }, [presets.package_names, operacaoItemSelecionado]);
+  }, [toast, error]);
 
   const logout = useCallback(() => {
     setTokens(null);
-    saveStoredTokens(null);
-    setSession(null);
-    setItems([]);
-    setPage(1);
-    setQuickForm(emptyQuickForm);
+    localStorage.removeItem(STORAGE_KEY);
   }, []);
 
-  const refreshAccessToken = useCallback(async () => {
-    if (!tokens?.refresh) {
-      logout();
-      throw new Error("Sessão expirada. Entre novamente.");
-    }
-
-    const data = await requestJson("/api/auth/token/refresh/", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ refresh: tokens.refresh }),
+  const fetchWithAuth = useCallback(async (url, opts = {}) => {
+    if (!tokens?.access) return null;
+    const res = await fetch(url, {
+      ...opts,
+      headers: { 
+        ...opts.headers, 
+        Authorization: `Bearer ${tokens.access}`,
+        "Content-Type": "application/json" 
+      },
     });
-
-    const updated = { access: data.access, refresh: tokens.refresh };
-    setTokens(updated);
-    saveStoredTokens(updated);
-    return updated.access;
+    if (res.status === 401) { logout(); return null; }
+    return res;
   }, [tokens, logout]);
 
-  const apiRequest = useCallback(
-    async (path, options = {}) => {
-      if (!tokens?.access) {
-        throw new Error("Usuário não autenticado.");
-      }
-
-      const runRequest = (accessToken) =>
-        fetch(path, {
-          ...options,
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${accessToken}`,
-            ...(options.headers || {}),
-          },
-        });
-
-      let response = await runRequest(tokens.access);
-      if (response.status === 401) {
-        const newAccess = await refreshAccessToken();
-        response = await runRequest(newAccess);
-      }
-
-      const body = await response.json().catch(() => ({}));
-      if (!response.ok) {
-        if (typeof body?.detail === "string") {
-          throw new Error(body.detail);
-        }
-        if (typeof body === "object" && body !== null) {
-          const firstError = Object.values(body).flat()[0];
-          if (typeof firstError === "string") {
-            throw new Error(firstError);
-          }
-        }
-        throw new Error("Não foi possível concluir a requisição.");
-      }
-
-      return response.status === 204 ? null : body;
-    },
-    [tokens, refreshAccessToken]
-  );
-
-  const canWrite = useMemo(() => {
-    if (!session) return false;
-    return session.is_staff || (session.groups || []).includes("catalog_manager");
-  }, [session]);
-
-  const loadSession = useCallback(async () => {
-    if (!tokens?.access) {
-      setAuthLoading(false);
-      return;
-    }
-
-    setAuthLoading(true);
-    setAuthError("");
-    try {
-      const me = await apiRequest("/api/auth/me/");
-      setSession(me);
-    } catch (sessionError) {
-      setAuthError(sessionError.message);
-      logout();
-    } finally {
-      setAuthLoading(false);
-    }
-  }, [tokens, apiRequest, logout]);
-
-  useEffect(() => {
-    loadSession();
-  }, [loadSession]);
-
-  const queryString = useMemo(() => {
-    const params = new URLSearchParams();
-    params.set("page", String(page));
-    params.set("ordering", ordering);
-    if (searchApplied.trim()) params.set("search", searchApplied.trim());
-    if (statusFilter !== "all") params.set("is_active", statusFilter);
-    return params.toString();
-  }, [page, ordering, searchApplied, statusFilter]);
-
-  const loadItems = useCallback(async () => {
-    if (!session) return;
+  const loadData = useCallback(async () => {
+    if (!tokens) return;
     setLoading(true);
-    setError("");
     try {
-      const data = await apiRequest(`/api/items/?${queryString}`);
-      setItems(data.results || []);
-      const total = data.count || 0;
-      setPageCount(Math.max(1, Math.ceil(total / 10)));
-    } catch (loadError) {
-      setError(loadError.message);
+      const [itRes, mvRes, meRes] = await Promise.all([
+        fetchWithAuth(`/api/items/?search=${search}&ordering=${ordering}`),
+        fetchWithAuth(`/api/movements/?limit=${movLimit}`),
+        fetchWithAuth("/api/items/metrics/"),
+      ]);
+      if (itRes) setItems((await itRes.json()).results || []);
+      if (mvRes) setMovimentos((await mvRes.json()).results || []);
+      if (meRes) setMetrics(await meRes.json());
+    } catch (e) { 
+      setError("Erro ao carregar dados do servidor."); 
     } finally {
       setLoading(false);
     }
-  }, [session, apiRequest, queryString]);
+  }, [tokens, fetchWithAuth, search, ordering, movLimit]);
 
-  const loadMetrics = useCallback(async () => {
-    if (!session) return;
-    try {
-      const data = await apiRequest("/api/items/metrics/");
-      setMetrics(data);
-    } catch {
-      // Optional in UI.
-    }
-  }, [session, apiRequest]);
+  useEffect(() => { loadData(); }, [loadData]);
 
-  const loadMovimentos = useCallback(async () => {
-    if (!session) return;
-    try {
-      const pageSize = Number(movimentosLimit || 12);
-      const data = await apiRequest(`/api/movements/?page=1&page_size=${pageSize}`);
-      setMovimentos(data.results || []);
-    } catch {
-      // Optional in UI.
-    }
-  }, [session, apiRequest, movimentosLimit]);
-
-  const loadOperacaoItems = useCallback(async (query = "", autoSelectFirst = false) => {
-    if (!session) return;
-    setOperacaoSearching(true);
-    try {
-      const params = new URLSearchParams();
-      if ((query || "").trim()) {
-        params.set("q", query.trim());
-      }
-      const path = params.toString()
-        ? `/api/items/choices/?${params.toString()}`
-        : "/api/items/choices/";
-      const data = await apiRequest(path);
-      const results = data.items || [];
-      setOperacaoItems(results);
-      if (autoSelectFirst && results.length) {
-        setOperacaoForm((prev) => ({ ...prev, variant_id: String(results[0].id) }));
-      }
-    } catch {
-      // Optional in UI.
-    } finally {
-      setOperacaoSearching(false);
-    }
-  }, [session, apiRequest]);
-
-  async function handleOperacaoSearchSubmit() {
-    const term = (operacaoSearch || "").trim();
-    await loadOperacaoItems(term, true);
-  }
-
-  const loadOperacaoContext = useCallback(async () => {
-    const variantId = Number(operacaoForm.variant_id || 0);
-    if (!session || !variantId) {
-      setOperacaoLastMovement(null);
-      return;
-    }
-    setOperacaoContextLoading(true);
-    try {
-      const data = await apiRequest(`/api/movements/?variant_id=${variantId}&page=1&page_size=1`);
-      const first = (data.results || [])[0] || null;
-      setOperacaoLastMovement(first);
-    } catch {
-      setOperacaoLastMovement(null);
-    } finally {
-      setOperacaoContextLoading(false);
-    }
-  }, [session, apiRequest, operacaoForm.variant_id]);
-
-  const loadPresets = useCallback(async () => {
-    if (!session) return;
-    try {
-      const data = await apiRequest("/api/catalog/presets/");
-      setPresets(data);
-      setQuickForm((prev) => ({
-        ...prev,
-        department_names: prev.department_names.length
-          ? prev.department_names
-          : data.departments?.length
-            ? [data.departments[0]]
-            : [],
-        package_size: data.package_sizes?.[0] || "1KG",
-        package_name: data.package_names?.[0] || "UNIDADE",
-        package_units: "1",
-      }));
-    } catch {
-      // Optional in UI.
-    }
-  }, [session, apiRequest]);
-
-  const loadSetores = useCallback(async () => {
-    if (!session) return;
-    try {
-      const data = await apiRequest("/api/departments/");
-      const recebidos = data.results || data || [];
-      const normalizados = recebidos
-        .filter((setor) => SETORES_PADRAO.includes(setor.name))
-        .sort(
-          (a, b) =>
-            SETORES_PADRAO.indexOf(a.name) - SETORES_PADRAO.indexOf(b.name)
-        );
-      setSetores(normalizados);
-    } catch {
-      // Optional in UI.
-    }
-  }, [session, apiRequest]);
-
-  useEffect(() => {
-    loadItems();
-  }, [loadItems]);
-
-  useEffect(() => {
-    loadMetrics();
-    loadPresets();
-    loadMovimentos();
-    loadOperacaoItems();
-    loadSetores();
-  }, [loadMetrics, loadPresets, loadMovimentos, loadOperacaoItems, loadSetores]);
-
-  useEffect(() => {
-    if (!operacaoSearch.trim()) return;
-    if (operacaoForm.variant_id) return;
-    if (!operacaoItems.length) return;
-    setOperacaoForm((prev) => ({ ...prev, variant_id: String(operacaoItems[0].id) }));
-  }, [operacaoSearch, operacaoItems, operacaoForm.variant_id]);
-
-  useEffect(() => {
-    if (!toast) return;
-    const timer = setTimeout(() => setToast(""), 2200);
-    return () => clearTimeout(timer);
-  }, [toast]);
-
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      setPage(1);
-      setSearchApplied(search);
-    }, 250);
-    return () => clearTimeout(timer);
-  }, [search]);
-
-  useEffect(() => {
-    loadOperacaoContext();
-  }, [loadOperacaoContext]);
-
-  useEffect(() => {
-    if (setorAtivoId === "all") return;
-    const setorAtivo = setores.find((s) => String(s.id) === String(setorAtivoId));
-    if (!setorAtivo) return;
-    setQuickForm((prev) => {
-      const mesmoSetor =
-        prev.department_names.length === 1 &&
-        prev.department_names[0] === setorAtivo.name;
-      if (mesmoSetor) {
-        return prev;
-      }
-      return {
-        ...prev,
-        department_names: [setorAtivo.name],
-        category_name: "",
-        product_name: "",
-        brand: "",
-        variant_label: "",
-      };
-    });
-    setCatalogQuery("");
-    setCatalogItems([]);
-    setCatalogMeta(EMPTY_CATALOG_META);
-  }, [setorAtivoId, setores]);
-
-  useEffect(() => {
-    if (!regraProdutoAtual) return;
-
-    setQuickForm((prev) => {
-      const produtoPreenchido = normalizarTexto(prev.product_name).length > 0;
-      const departamentosDaRegra = (regraProdutoAtual.departments || []).filter(Boolean);
-      const departamentosAtualizados =
-        produtoPreenchido && departamentosDaRegra.length
-          ? departamentosDaRegra
-          : prev.department_names;
-
-      const proximoTipo =
-        regraProdutoAtual.types?.includes(prev.variant_label) && prev.variant_label
-          ? prev.variant_label
-          : regraProdutoAtual.types?.[0] || prev.variant_label;
-
-      const proximoTamanho =
-        regraProdutoAtual.sizes?.includes(prev.package_size) && prev.package_size
-          ? prev.package_size
-          : regraProdutoAtual.sizes?.[0] || prev.package_size;
-
-      const proximaEmbalagem =
-        regraProdutoAtual.default_package_name || prev.package_name;
-      const proximasUnidades =
-        String(regraProdutoAtual.default_package_units || prev.package_units || "1");
-
-      return {
-        ...prev,
-        department_names: departamentosAtualizados,
-        variant_label: proximoTipo,
-        package_size: proximoTamanho,
-        package_name: proximaEmbalagem,
-        package_units: proximasUnidades,
-      };
-    });
-  }, [regraProdutoAtual]);
-
-  const searchCatalogByTerm = useCallback(
-    async (term) => {
-      const query = (term || "").trim();
-      if (query.length < 2) {
-        setCatalogItems([]);
-        setCatalogMeta(EMPTY_CATALOG_META);
-        return;
-      }
-      try {
-        const params = new URLSearchParams({ q: query });
-        if (setorAtivoId !== "all") {
-          const setorAtivo = setores.find((s) => String(s.id) === String(setorAtivoId));
-          if (setorAtivo?.name) {
-            params.set("department", setorAtivo.name);
-          }
-        }
-        const data = await apiRequest(`/api/catalog/lookup/?${params.toString()}`);
-        setCatalogItems(data.items || []);
-        setCatalogMeta(data.meta || EMPTY_CATALOG_META);
-      } catch {
-        setCatalogItems([]);
-        setCatalogMeta(EMPTY_CATALOG_META);
-      }
-    },
-    [apiRequest, setorAtivoId, setores]
-  );
-
-  useEffect(() => {
-    const term = (quickForm.product_name || "").trim();
-    if (term.length < 2) return;
-    const timer = setTimeout(() => {
-      searchCatalogByTerm(term);
-    }, 350);
-    return () => clearTimeout(timer);
-  }, [quickForm.product_name, searchCatalogByTerm]);
-
-  useEffect(() => {
-    const term = (catalogQuery || "").trim();
-    if (term.length < 2) {
-      setCatalogItems([]);
-      setCatalogMeta(EMPTY_CATALOG_META);
-      return;
-    }
-    const timer = setTimeout(() => {
-      searchCatalogByTerm(term);
-    }, 300);
-    return () => clearTimeout(timer);
-  }, [catalogQuery, searchCatalogByTerm]);
-
-  async function handleLogin(event) {
-    event.preventDefault();
-    setAuthError("");
-    setLoginLoading(true);
-    try {
-      const data = await requestJson("/api/auth/token/", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(loginForm),
-      });
-      const nextTokens = { access: data.access, refresh: data.refresh };
-      setTokens(nextTokens);
-      saveStoredTokens(nextTokens);
-      setLoginForm({ username: "", password: "" });
-    } catch (loginError) {
-      setAuthError(loginError.message);
-    } finally {
-      setLoginLoading(false);
-    }
-  }
-
-  function applyCatalogItem(item) {
-    if (!item) return;
-    const variantLabel = limparTipoArroz(item.product_name, item.variant_label);
-    setQuickForm((prev) => ({
-      ...prev,
-      department_names: item.department_names?.length
-        ? item.department_names
-        : prev.department_names,
-      category_name: item.category || prev.category_name,
-      product_name: item.product_name || prev.product_name,
-      brand: item.brand || prev.brand,
-      variant_label: variantLabel || prev.variant_label,
-      package_size: item.package_size || prev.package_size,
-      package_name: item.package_name || prev.package_name,
-      package_units: String(item.package_units || prev.package_units || "1"),
-    }));
-    setToast("Produto aplicado ao formulário.");
-  }
-
-  function getGroupVariantOptions(group) {
-    return Array.from(
-      new Set((group?.options || []).map((entry) => entry.variant_label || "Tradicional"))
-    );
-  }
-
-  function getGroupSizeOptions(group, variant) {
-    return (group?.options || [])
-      .filter(
-        (entry) =>
-          normalizarTexto(entry.variant_label || "Tradicional") ===
-          normalizarTexto(variant || "Tradicional")
-      )
-      .map((entry) => entry.package_size)
-      .filter(Boolean)
-      .sort((a, b) => {
-        const [ag, av] = tamanhoOrdenacao(a);
-        const [bg, bv] = tamanhoOrdenacao(b);
-        if (ag !== bg) return ag - bg;
-        if (av !== bv) return av - bv;
-        return normalizarTexto(a).localeCompare(normalizarTexto(b), "pt-BR");
-      });
-  }
-
-  function updateCatalogChoice(groupKey, updates, defaultVariant = "Tradicional") {
-    setCatalogChoices((prev) => {
-      const current = prev[groupKey] || {};
-      return {
-        ...prev,
-        [groupKey]: {
-          variant: current.variant || defaultVariant,
-          size: current.size || "",
-          quantity: current.quantity || "1",
-          ...current,
-          ...updates,
-        },
-      };
-    });
-  }
-
-  function selectCatalogBrand(group) {
-    if (!group?.options?.length) return;
-    const first = group.options[0];
-    const firstVariant = first.variant_label || "Tradicional";
-    const sizeOptions = getGroupSizeOptions(group, firstVariant);
-    const firstSize = sizeOptions[0] || first.package_size || "";
-    updateCatalogChoice(group.key, {
-      variant: firstVariant,
-      size: firstSize,
-      quantity: quickForm.quantity || "1",
-    });
-    setExpandedCatalogGroups((prev) =>
-      prev.includes(group.key) ? prev : [...prev, group.key]
-    );
-  }
-
-  function applyCatalogBrandSelection(group) {
-    const resolved = resolveCatalogGroupChoice(group);
-    if (!resolved) return;
-    const { selected, qty } = resolved;
-
-    applyCatalogItem(selected);
-    setQuickForm((prev) => ({ ...prev, quantity: String(qty) }));
-    setToast("Marca e tamanho aplicados ao formulário.");
-  }
-
-  function addCatalogBrandSelection(group) {
-    const resolved = resolveCatalogGroupChoice(group);
-    if (!resolved) return;
-    const { selected, qty } = resolved;
-
-    const price = Number(selected?.price || quickForm.price || 0);
-    if (!price || price <= 0) {
-      setError("Defina um preço no formulário para adicionar itens ao lote.");
-      return;
-    }
-
-    const entry = {
-      key: [
-        normalizarTexto(selected?.product_name),
-        normalizarTexto(selected?.brand),
-        normalizarTexto(selected?.variant_label || "Tradicional"),
-        normalizarTexto(selected?.package_size),
-      ].join("|"),
-      category_name: selected?.category || quickForm.category_name || "",
-      department_names: selected?.department_names?.length
-        ? selected.department_names
-        : quickForm.department_names,
-      product_name: selected?.product_name || "",
-      brand: selected?.brand || "",
-      variant_label: selected?.variant_label || "Tradicional",
-      package_size: selected?.package_size || "",
-      package_name: selected?.package_name || quickForm.package_name || "UNIDADE",
-      package_units: Number(selected?.package_units || quickForm.package_units || 1),
-      quantity: qty,
-      price,
-    };
-
-    setCatalogBatchEntries((prev) => {
-      const existingIndex = prev.findIndex((item) => item.key === entry.key);
-      if (existingIndex === -1) return [...prev, entry];
-      const updated = [...prev];
-      updated[existingIndex] = entry;
-      return updated;
-    });
-    setToast("Seleção adicionada ao lote.");
-  }
-
-  function resolveCatalogGroupChoice(group) {
-    if (!group?.options?.length) return null;
-    const variantOptions = getGroupVariantOptions(group);
-    const rawChoice = catalogChoices[group.key] || {};
-    const chosenVariant = rawChoice.variant || variantOptions[0] || "Tradicional";
-    const sizeOptions = getGroupSizeOptions(group, chosenVariant);
-    const chosenSize = rawChoice.size || sizeOptions[0] || "";
-    const qty = Number(rawChoice.quantity || 1);
-    if (qty < 1) {
-      setError("A quantidade deve ser no mínimo 1.");
-      return null;
-    }
-    const selected =
-      group.options.find(
-        (entry) =>
-          normalizarTexto(entry.variant_label || "Tradicional") ===
-            normalizarTexto(chosenVariant) &&
-          normalizarTexto(entry.package_size) === normalizarTexto(chosenSize)
-      ) || group.options[0];
-    return { selected, qty };
-  }
-
-  async function applyCatalogBatchSelections() {
-    if (!catalogBatchEntries.length) {
-      setError("Adicione pelo menos um item ao lote.");
-      return;
-    }
-    setCatalogBatchSaving(true);
-    setError("");
-    let successCount = 0;
-    const failedKeys = new Set();
-    const failures = [];
-
-    for (const entry of catalogBatchEntries) {
-      try {
-        await apiRequest("/api/items/quick-entry/", {
-          method: "POST",
-          body: JSON.stringify({
-            ...entry,
-            price: Number(entry.price),
-            quantity: Number(entry.quantity),
-            package_units: Number(entry.package_units || 1),
-          }),
-        });
-        successCount += 1;
-      } catch (submitError) {
-        failedKeys.add(entry.key);
-        failures.push(`${entry.product_name} ${entry.brand}: ${submitError.message}`);
-      }
-    }
-
-    await Promise.all([loadItems(), loadMetrics(), loadPresets()]);
-    setCatalogBatchSaving(false);
-    if (successCount) {
-      setToast(`${successCount} item(ns) do lote processado(s).`);
-    }
-    if (failures.length) {
-      setError(`Falhas no lote (${failures.length}): ${failures.slice(0, 2).join(" | ")}`);
-      setCatalogBatchEntries((prev) => prev.filter((entry) => failedKeys.has(entry.key)));
-      return;
-    }
-    setCatalogBatchEntries([]);
-  }
-
-  async function handleCatalogBarcodeLookup() {
-    const code = (barcodeQuery || "").trim();
-    if (!code) {
-      setError("Informe um código de barras para buscar.");
-      return;
-    }
-    setCatalogLoading(true);
-    setError("");
-    try {
-      const data = await apiRequest(`/api/catalog/lookup/?barcode=${encodeURIComponent(code)}`);
-      const item = data.item || null;
-      setCatalogItems(item ? [item] : []);
-      setCatalogMeta(data.meta || {});
-      if (item) {
-        applyCatalogItem(item);
-      } else {
-        setToast("Nenhum produto encontrado para esse código.");
-      }
-      if (data.meta && !data.meta.bluesoft_configurada) {
-        setToast("Bluesoft não configurada neste terminal. Usando catálogo local.");
-      }
-    } catch (lookupError) {
-      setError(lookupError.message);
-    } finally {
-      setCatalogLoading(false);
-    }
-  }
-
-  async function handleCatalogSearch() {
-    const query = (catalogQuery || "").trim();
-    if (query.length < 2) {
-      setError("Digite ao menos 2 caracteres para pesquisar no catálogo.");
-      return;
-    }
-    setCatalogLoading(true);
-    setError("");
-    try {
-      const params = new URLSearchParams({ q: query });
-      if (setorAtivoId !== "all") {
-        const setorAtivo = setores.find((s) => String(s.id) === String(setorAtivoId));
-        if (setorAtivo?.name) {
-          params.set("department", setorAtivo.name);
-        }
-      }
-      const data = await apiRequest(`/api/catalog/lookup/?${params.toString()}`);
-      setCatalogItems(data.items || []);
-      setCatalogMeta(data.meta || EMPTY_CATALOG_META);
-      if (!(data.items || []).length) {
-        setToast("Nenhum produto encontrado para essa busca.");
-      }
-      if (data.meta && !data.meta.bluesoft_configurada) {
-        setToast("Bluesoft não configurada neste terminal. Usando catálogo local.");
-      }
-    } catch (lookupError) {
-      setError(lookupError.message);
-    } finally {
-      setCatalogLoading(false);
-    }
-  }
-
-  async function handleRestock(itemId) {
-    const qty = Number(restockQty[itemId] || 1);
-    if (qty < 1) {
-      setError("A quantidade de reposição deve ser no mínimo 1.");
-      return;
-    }
-
-    setError("");
-    try {
-      const packageName = restockPackage[itemId] || "UNIDADE";
-      await apiRequest(`/api/items/${itemId}/restock/`, {
-        method: "POST",
-        body: JSON.stringify({ package_name: packageName, package_quantity: qty }),
-      });
-      setToast("Reposicao realizada com sucesso.");
-      setRestockQty((prev) => ({ ...prev, [itemId]: 1 }));
-      await Promise.all([loadItems(), loadMetrics()]);
-    } catch (restockError) {
-      setError(restockError.message);
-    }
-  }
-
-  async function handleOperacaoEstoque(event) {
-    event.preventDefault();
-    if (!operacaoForm.variant_id) {
-      setError("Selecione um item para movimentar.");
-      return;
-    }
-
-    const endpoint = MOVIMENTO_ENDPOINTS[operacaoForm.tipo];
-    if (!endpoint) return;
-
-    const payload = {
-      variant_id: Number(operacaoForm.variant_id),
-      notes: operacaoForm.notes,
-    };
-
-    if (operacaoForm.tipo === "ADJUST") {
-      payload.quantity_units = Number(operacaoForm.quantity_units || 1);
-    } else {
-      payload.package_name = operacaoForm.package_name;
-      payload.package_quantity = Number(operacaoForm.package_quantity || 1);
-    }
-
-    setSaving(true);
-    setError("");
-    try {
-      await apiRequest(endpoint, {
-        method: "POST",
-        body: JSON.stringify(payload),
-      });
-      setToast("Movimentação registrada.");
-      setOperacaoForm((prev) => ({ ...emptyOperacaoForm, tipo: prev.tipo }));
-      await Promise.all([loadItems(), loadMetrics(), loadMovimentos()]);
-    } catch (operationError) {
-      setError(operationError.message);
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  if (authLoading) {
+  if (!tokens) {
     return (
-      <>
-        <ThemeToggleButton theme={theme} onToggle={toggleTheme} />
-        <main className="layout">
-          <p>Validando sessão...</p>
-        </main>
-      </>
-    );
-  }
-
-  if (!session) {
-    return (
-      <>
-        <ThemeToggleButton theme={theme} onToggle={toggleTheme} />
-        <main className="layout">
-          <header className="hero">
-            <p className="eyebrow">Mercado Stack</p>
-            <h1>Entrar</h1>
-            <p>Use um usuário cadastrado para acessar o sistema.</p>
-          </header>
-          <section className="panel auth-card">
-            <form className="form-grid" onSubmit={handleLogin}>
-              <label>
-                Usuário
-                <input
-                  value={loginForm.username}
-                  onChange={(event) =>
-                    setLoginForm((prev) => ({ ...prev, username: event.target.value }))
-                  }
-                />
-              </label>
-              <label>
-                Senha
-                <input
-                  type="password"
-                  value={loginForm.password}
-                  onChange={(event) =>
-                    setLoginForm((prev) => ({ ...prev, password: event.target.value }))
-                  }
-                />
-              </label>
-              <div className="actions full-width">
-                <button type="submit" disabled={loginLoading}>
-                  {loginLoading ? "Entrando..." : "Entrar"}
-                </button>
-              </div>
-            </form>
-            {authError ? <p className="feedback error">{authError}</p> : null}
-            <p className="hint">
-              Usuários de teste: <code>manager / Manager@123</code> e{" "}
-              <code>viewer / Viewer@123</code>
-            </p>
-          </section>
-        </main>
-      </>
+      <div className="login-shell">
+        <form className="card login-card" onSubmit={async (e) => {
+          e.preventDefault();
+          const fd = new FormData(e.target);
+          const res = await fetch("/api/auth/token/", {
+            method: "POST",
+            body: JSON.stringify(Object.fromEntries(fd)),
+            headers: { "Content-Type": "application/json" }
+          });
+          if (res.ok) {
+            const data = await res.json();
+            setTokens(data);
+            localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+          } else { setError("Usuário ou senha incorretos."); }
+        }}>
+          <h1>SGV Mercado</h1>
+          <input name="username" placeholder="Usuário" required />
+          <input name="password" type="password" placeholder="Senha" required />
+          <button type="submit" className="btn-primary">Entrar</button>
+          {error && <p className="error-text">{error}</p>}
+        </form>
+      </div>
     );
   }
 
   return (
     <>
-      <ThemeToggleButton theme={theme} onToggle={toggleTheme} />
-      <main className="layout">
-      <header className="hero topbar">
-        <div>
-          <p className="eyebrow">Mercado Stack</p>
-          <h1>Gestao de estoque</h1>
-          <p>Cadastro por categoria e movimentação por embalagem (fardo, caixa, unidade).</p>
-        </div>
-        <div className="session-box">
-          <strong>{session.username}</strong>
-          <span>{canWrite ? "Gerente de catálogo" : "Visualizador"}</span>
-          <button type="button" className="ghost" onClick={logout}>
-            Sair
-          </button>
+      <header className="main-header">
+        <div className="header-content">
+          <div className="brand">
+            <span className="logo-icon">🏪</span>
+            <h1>Mercado-SGV</h1>
+          </div>
+          <nav className="nav-tabs">
+            <button className={activeTab === "estoque" ? "active" : ""} onClick={() => setActiveTab("estoque")}>📦 Estoque</button>
+            <button className={activeTab === "vendas" ? "active" : ""} onClick={() => setActiveTab("vendas")}>💰 Vendas</button>
+            <button className={activeTab === "entrada" ? "active" : ""} onClick={() => setActiveTab("entrada")}>📥 Entrada</button>
+            <button className={activeTab === "relatorios" ? "active" : ""} onClick={() => setActiveTab("relatorios")}>📊 Relatórios</button>
+          </nav>
+          <div className="header-actions">
+            <button onClick={() => setTheme(theme === "light" ? "dark" : "light")} className="btn-icon">
+              {theme === "light" ? "🌙" : "☀️"}
+            </button>
+            <button onClick={logout} className="btn-outline">Sair</button>
+          </div>
         </div>
       </header>
 
-      <section className="metrics">
-        <article className="metric-card">
-          <span>Total de variacoes</span>
-          <strong>{metrics.total_variants}</strong>
-        </article>
-        <article className="metric-card">
-          <span>Ativas</span>
-          <strong>{metrics.active_variants}</strong>
-        </article>
-        <article className="metric-card">
-          <span>Estoque total</span>
-          <strong>{metrics.total_stock}</strong>
-        </article>
-        <article className="metric-card">
-          <span>Baixo estoque</span>
-          <strong>{metrics.low_stock_count}</strong>
-        </article>
-      </section>
-
-      <section className="panel">
-        <h2>Setores</h2>
-        <div className="tabs-setores">
-          <button
-            type="button"
-            className={setorAtivoId === "all" ? "tab-setor ativo" : "tab-setor"}
-            onClick={handleSetorTodos}
-          >
-            Todos
-          </button>
-          {setores.map((setor) => (
-            <button
-              key={setor.id}
-              type="button"
-              className={String(setor.id) === String(setorAtivoId) ? "tab-setor ativo" : "tab-setor"}
-              onClick={() => handleSetorSelect(setor.id)}
-            >
-              {corrigirOrtografiaUI(setor.name)}
-            </button>
-          ))}
-        </div>
-      </section>
-
-      {canWrite ? (
-        <section className="panel">
-          <h2>Entrada rápida (cria ou repõe automaticamente)</h2>
-          <p className="hint">
-            Dica: ao informar o produto (ex: Leite, Arroz, Refrigerante), o formulário
-            sugere automaticamente tipo, tamanho e embalagem mais comum.
-          </p>
-          <div className="catalog-assistant">
-            <h3>Assistente de catálogo</h3>
-            <p className="hint">
-              Fonte ativa: {catalogMeta.bluesoft_configurada ? "Bluesoft + local" : "Catálogo local (configure Bluesoft)"}.
-              {catalogMeta.resultados_bluesoft || catalogMeta.resultados_locais || catalogMeta.resultados_estoque
-                ? ` Resultados: estoque ${catalogMeta.resultados_estoque || 0}, Bluesoft ${catalogMeta.resultados_bluesoft || 0}, local ${catalogMeta.resultados_locais || 0}.`
-                : ""}
-            </p>
-            <p className="hint">
-              Para selecionar 2 ou mais marcas no mesmo lançamento, abra as marcas desejadas, adicione cada uma ao lote e depois clique em <strong>Salvar lote</strong>.
-            </p>
-            <div className="catalog-search-row">
-              <input
-                value={barcodeQuery}
-                onChange={(event) => setBarcodeQuery(event.target.value)}
-                placeholder="Código de barras (EAN/GTIN)"
-              />
-              <button type="button" onClick={handleCatalogBarcodeLookup} disabled={catalogLoading}>
-                {catalogLoading ? "Buscando..." : "Buscar por código"}
-              </button>
-            </div>
-            <div className="catalog-search-row">
-              <input
-                value={catalogQuery}
-                onChange={(event) => setCatalogQuery(event.target.value)}
-                onKeyDown={(event) => {
-                  if (event.key === "Enter") {
-                    event.preventDefault();
-                    handleCatalogSearch();
-                  }
-                }}
-                placeholder="Pesquisar produto no catálogo (ex: refrigerante cola)"
-              />
-              <button type="button" className="ghost" onClick={handleCatalogSearch} disabled={catalogLoading}>
-                Pesquisar nome
-              </button>
-            </div>
-            {catalogBrandGroups.length ? (
-              <div className="catalog-results">
-                {catalogBatchEntries.length ? (
-                  <article className="catalog-item full-width">
-                    <div>
-                      <strong>Lote pronto: {catalogBatchEntries.length} item(ns)</strong>
-                      <p>
-                        {catalogBatchEntries
-                          .slice(0, 3)
-                          .map((entry) =>
-                            `${corrigirOrtografiaUI(entry.product_name)} ${corrigirOrtografiaUI(entry.variant_label)} — ${corrigirOrtografiaUI(entry.brand)} — ${corrigirOrtografiaUI(entry.package_size)} x${entry.quantity}`
-                          )
-                          .join(" | ")}
-                        {catalogBatchEntries.length > 3 ? " | ..." : ""}
-                      </p>
-                    </div>
-                    <div className="actions">
-                      <button type="button" onClick={applyCatalogBatchSelections} disabled={catalogBatchSaving}>
-                        {catalogBatchSaving ? "Processando lote..." : "Salvar lote"}
-                      </button>
-                      <button type="button" className="ghost" onClick={() => setCatalogBatchEntries([])}>
-                        Limpar lote
-                      </button>
-                    </div>
-                  </article>
-                ) : null}
-                {catalogBrandGroups.slice(0, 30).map((group) => {
-                  const produtoUi = corrigirOrtografiaUI(group.product_name);
-                  const marcaUi = corrigirOrtografiaUI(group.brand);
-                  const categoriaUi = corrigirOrtografiaUI(group.category);
-                  const expanded = expandedCatalogGroups.includes(group.key);
-                  const variantOptions = getGroupVariantOptions(group);
-                  const choice = catalogChoices[group.key] || {
-                    variant: variantOptions[0] || "Tradicional",
-                    size: "",
-                    quantity: "1",
-                  };
-                  const sizeOptions = getGroupSizeOptions(
-                    group,
-                    choice.variant || variantOptions[0] || "Tradicional"
-                  );
-                  const uniqueSizes = Array.from(new Set(sizeOptions));
-                  return (
-                  <article
-                    key={group.key}
-                    className="catalog-item"
-                  >
-                    <div>
-                      <strong>
-                        {`${produtoUi} — ${marcaUi}`}
-                      </strong>
-                      <p>{categoriaUi} - fonte: {group.source} - {group.options.length} variações</p>
-                    </div>
-                    <div>
-                      <button
-                        type="button"
-                        className="ghost"
-                        onClick={() => {
-                          if (expanded) {
-                            setExpandedCatalogGroups((prev) => prev.filter((key) => key !== group.key));
-                            return;
-                          }
-                          selectCatalogBrand(group);
-                        }}
-                      >
-                        {expanded ? "Fechar seleção" : "Selecionar marca"}
-                      </button>
-                    </div>
-                    {expanded ? (
-                      <div className="form-grid" style={{ marginTop: "0.75rem" }}>
-                        <label>
-                          Tipo
-                          <select
-                            value={choice.variant}
-                            onChange={(event) =>
-                              updateCatalogChoice(
-                                group.key,
-                                { variant: event.target.value, size: "" },
-                                variantOptions[0] || "Tradicional"
-                              )
-                            }
-                          >
-                            {variantOptions.map((name) => (
-                              <option key={name} value={name}>
-                                {corrigirOrtografiaUI(name)}
-                              </option>
-                            ))}
-                          </select>
-                        </label>
-                        <label>
-                          Tamanho/Litros
-                          <select
-                            value={choice.size}
-                            onChange={(event) =>
-                              updateCatalogChoice(
-                                group.key,
-                                { size: event.target.value },
-                                variantOptions[0] || "Tradicional"
-                              )
-                            }
-                          >
-                            <option value="">Selecione...</option>
-                            {uniqueSizes.map((size) => (
-                              <option key={size} value={size}>
-                                {corrigirOrtografiaUI(size)}
-                              </option>
-                            ))}
-                          </select>
-                        </label>
-                        <label>
-                          Quantidade
-                          <input
-                            type="number"
-                            min="1"
-                            step="1"
-                            value={choice.quantity}
-                            onChange={(event) =>
-                              updateCatalogChoice(
-                                group.key,
-                                { quantity: event.target.value },
-                                variantOptions[0] || "Tradicional"
-                              )
-                            }
-                          />
-                        </label>
-                        <div className="actions">
-                          <button type="button" className="ghost" onClick={() => addCatalogBrandSelection(group)}>
-                            Adicionar ao lote
-                          </button>
-                          <button type="button" onClick={() => applyCatalogBrandSelection(group)}>
-                            Usar no formulário
-                          </button>
-                        </div>
-                      </div>
-                    ) : null}
-                  </article>
-                  );
-                })}
+      <main className="container">
+        {/* ABA: ESTOQUE */}
+        {activeTab === "estoque" && (
+          <section className="card fade-in">
+            <div className="section-header">
+              <h2>Lista de Produtos</h2>
+              <div className="filters">
+                <input type="text" placeholder="Buscar produto..." value={search} onChange={(e) => setSearch(e.target.value)} className="search-input" />
+                <select value={ordering} onChange={(e) => setOrdering(e.target.value)}>
+                  {ORDERING_OPTIONS.map(opt => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
+                </select>
               </div>
-            ) : null}
-          </div>
-          <p className="hint">
-            Fluxo recomendado: use o Assistente de catálogo, adicione os itens ao lote e finalize em <strong>Salvar lote</strong>.
-          </p>
-        </section>
-      ) : (
-        <section className="panel">
-          <p className="feedback">Modo visualização. Cadastro e reposição bloqueados.</p>
-        </section>
-      )}
+            </div>
+            <div className="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Produto</th>
+                    <th>Variação</th>
+                    <th>Preço</th>
+                    <th>Estoque</th>
+                    <th>Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {items.map(item => (
+                    <tr key={item.id}>
+                      <td><strong>{corrigirOrtografiaUI(item.product_name)}</strong> <small>{item.brand}</small></td>
+                      <td>{item.variant_label} ({item.package_size})</td>
+                      <td>R$ {formatPrice(item.price)}</td>
+                      <td>
+                        <span className={`stock-tag ${item.stock <= 5 ? 'warning' : 'good'}`}>{item.stock} un</span>
+                      </td>
+                      <td>{item.is_active ? "✅" : "❌"}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </section>
+        )}
 
-      {canWrite ? (
-        <section className="panel">
-          <h2>Operação de estoque</h2>
-          <p className="hint">
-            Essa seção serve para movimentar estoque de um item já cadastrado: <strong>Receber</strong> (entrada), <strong>Venda</strong> (saída) e <strong>Ajuste</strong> (corrigir contagem).
-          </p>
-          <div className="operation-cards">
-            <article className="operation-card">
-              <span>Item selecionado</span>
-              <strong>{operacaoItemSelecionado?.label || "Nenhum item"}</strong>
-            </article>
-            <article className="operation-card">
-              <span>Estoque atual</span>
-              <strong>{operacaoItemSelecionado ? operacaoItemSelecionado.stock : "-"}</strong>
-            </article>
-            <article className="operation-card">
-              <span>Última movimentação</span>
-              <strong>
-                {operacaoContextLoading
-                  ? "Carregando..."
-                  : operacaoLastMovement
-                    ? `${movimentoLabel[operacaoLastMovement.movement_type] || operacaoLastMovement.movement_type} (${operacaoLastMovement.units_delta > 0 ? "+" : ""}${operacaoLastMovement.units_delta})`
-                    : "Sem histórico"}
-              </strong>
-            </article>
-            <article className="operation-card">
-              <span>Atualizado em</span>
-              <strong>
-                {formatDateTimePtBr(operacaoItemSelecionado?.updated_at)}
-              </strong>
-            </article>
-          </div>
-          <form className="form-grid" onSubmit={handleOperacaoEstoque}>
-            <label>
-              Buscar item
-              <div className="catalog-search-row">
-                <input
-                  value={operacaoSearch}
-                  onChange={(event) => setOperacaoSearch(event.target.value)}
-                  onKeyDown={(event) => {
-                    if (event.key === "Enter") {
-                      event.preventDefault();
-                      handleOperacaoSearchSubmit();
-                    }
-                  }}
-                  placeholder="Digite produto, marca, tipo ou tamanho..."
-                />
-                <button
-                  type="button"
-                  className="ghost"
-                  onClick={handleOperacaoSearchSubmit}
-                  disabled={operacaoSearching}
-                >
-                  Buscar
-                </button>
+        {/* ABA: VENDAS */}
+        {activeTab === "vendas" && (
+          <section className="card fade-in">
+            <div className="section-header">
+              <h2>Registrar Venda</h2>
+              <p className="subtitle">Saída imediata de produtos do estoque.</p>
+            </div>
+            <form className="operation-form" onSubmit={async (e) => {
+              e.preventDefault();
+              const formData = new FormData(e.target);
+              const data = {
+                variant_id: formData.get("variant_id"),
+                quantity_units: parseInt(formData.get("quantity")),
+              };
+              const res = await fetchWithAuth(MOVIMENTO_ENDPOINTS.SELL, {
+                method: "POST",
+                body: JSON.stringify(data),
+              });
+              if (res?.ok) {
+                setToast("Venda registrada com sucesso!");
+                loadData();
+                e.target.reset();
+              } else { setError("Erro na venda. Verifique se há estoque suficiente."); }
+            }}>
+              <div className="form-group">
+                <label>Produto</label>
+                <select name="variant_id" required>
+                  <option value="">Selecione um item...</option>
+                  {items.filter(i => i.stock > 0).map(item => (
+                    <option key={item.id} value={item.id}>
+                      {item.product_name} - {item.variant_label} (Disponível: {item.stock})
+                    </option>
+                  ))}
+                </select>
               </div>
-            </label>
-            <label>
-              Item
-              <select
-                value={operacaoForm.variant_id}
-                onChange={(event) =>
-                  setOperacaoForm((prev) => ({ ...prev, variant_id: event.target.value }))
-                }
-              >
-                <option value="">Selecione...</option>
-                {operacaoItems.map((item) => (
-                  <option key={item.id} value={item.id}>
-                    {item.label}
-                  </option>
-                ))}
-              </select>
-              <span className="muted operation-helper">
-                {operacaoSearching
-                  ? "Buscando itens..."
-                  : operacaoSearch.trim() && !operacaoItems.length
-                    ? "Nenhum item encontrado para essa busca."
-                    : " "}
-              </span>
-            </label>
-            <label>
-              Tipo de movimentação
-              <select
-                value={operacaoForm.tipo}
-                onChange={(event) =>
-                  setOperacaoForm((prev) => ({ ...prev, tipo: event.target.value }))
-                }
-              >
-                <option value="RECEIVE">Receber</option>
-                <option value="SELL">Venda</option>
-                <option value="ADJUST">Ajuste</option>
-              </select>
-            </label>
-            <label>
-              {operacaoForm.tipo === "ADJUST" ? "Ajuste em unidades" : "Quantidade"}
-              <input
-                type="number"
-                min="1"
-                step="1"
-                value={
-                  operacaoForm.tipo === "ADJUST"
-                    ? operacaoForm.quantity_units
-                    : operacaoForm.package_quantity
-                }
-                onChange={(event) =>
-                  setOperacaoForm((prev) =>
-                    operacaoForm.tipo === "ADJUST"
-                      ? { ...prev, quantity_units: event.target.value }
-                      : { ...prev, package_quantity: event.target.value }
-                  )
-                }
-              />
-            </label>
-            <div className="actions full-width">
-              <button
-                type="button"
-                className="ghost"
-                onClick={() => setShowOperacaoAdvanced((prev) => !prev)}
-              >
-                {showOperacaoAdvanced ? "Ocultar detalhes avançados" : "Mostrar detalhes avançados"}
-              </button>
+              <div className="form-group">
+                <label>Quantidade</label>
+                <input name="quantity" type="number" min="1" defaultValue="1" required />
+              </div>
+              <button type="submit" className="btn-primary">Confirmar Venda</button>
+            </form>
+          </section>
+        )}
+
+        {/* ABA: ENTRADA */}
+        {activeTab === "entrada" && (
+          <section className="card fade-in">
+            <div className="section-header">
+              <h2>Entrada de Mercadoria</h2>
+              <p className="subtitle">Cadastre novos produtos ou adicione estoque aos existentes.</p>
             </div>
-
-            {showOperacaoAdvanced ? (
-              <>
-                {operacaoForm.tipo !== "ADJUST" ? (
-                  <label>
-                    Embalagem
-                    <input
-                      list="operacao-package-names"
-                      value={operacaoForm.package_name}
-                      onChange={(event) =>
-                        setOperacaoForm((prev) => ({
-                          ...prev,
-                          package_name: event.target.value,
-                        }))
-                      }
-                    />
-                  </label>
-                ) : null}
-                <label>
-                  Observação
-                  <input
-                    value={operacaoForm.notes}
-                    onChange={(event) =>
-                      setOperacaoForm((prev) => ({ ...prev, notes: event.target.value }))
-                    }
-                    placeholder="Ex: compra semanal, venda balcão, ajuste inventário"
-                  />
-                </label>
-              </>
-            ) : (
-              <label className="full-width">
-                Observação rápida (opcional)
-                <input
-                  value={operacaoForm.notes}
-                  onChange={(event) =>
-                    setOperacaoForm((prev) => ({ ...prev, notes: event.target.value }))
-                  }
-                  placeholder="Ex: compra semanal, venda balcão"
-                />
-              </label>
-            )}
-            <div className="actions full-width">
-              <button type="submit" disabled={saving}>
-                {saving ? "Salvando..." : "Registrar movimentação"}
+            <form className="quick-entry-grid" onSubmit={async (e) => {
+              e.preventDefault();
+              setLoading(true);
+              const res = await fetchWithAuth("/api/items/quick-entry/", {
+                method: "POST",
+                body: JSON.stringify(quickForm),
+              });
+              if (res?.ok) {
+                setToast("Entrada processada com sucesso!");
+                setQuickForm(emptyQuickForm);
+                loadData();
+              } else { setError("Erro ao processar entrada. Verifique os campos."); }
+              setLoading(false);
+            }}>
+              <div className="form-row">
+                <input placeholder="Nome do Produto" value={quickForm.name} onChange={e => setQuickForm({...quickForm, name: e.target.value})} required />
+                <input placeholder="Marca" value={quickForm.brand} onChange={e => setQuickForm({...quickForm, brand: e.target.value})} />
+              </div>
+              <div className="form-row">
+                <input placeholder="Categoria (ex: Bebidas)" value={quickForm.category_name} onChange={e => setQuickForm({...quickForm, category_name: e.target.value})} required />
+                <input placeholder="Preço de Venda" type="number" step="0.01" value={quickForm.price} onChange={e => setQuickForm({...quickForm, price: e.target.value})} required />
+              </div>
+              <div className="form-row">
+                <input placeholder="Qtd. Inicial" type="number" value={quickForm.initial_stock} onChange={e => setQuickForm({...quickForm, initial_stock: e.target.value})} />
+                <select value={quickForm.package_size} onChange={e => setQuickForm({...quickForm, package_size: e.target.value})}>
+                  <option value="Unidade">Unidade</option>
+                  <option value="1KG">1 KG</option>
+                  <option value="500G">500 G</option>
+                </select>
+              </div>
+              <button type="submit" className="btn-success" disabled={loading}>
+                {loading ? "Gravando..." : "Salvar Entrada"}
               </button>
+            </form>
+          </section>
+        )}
+
+        {/* ABA: RELATÓRIOS */}
+        {activeTab === "relatorios" && (
+          <section className="fade-in">
+            <div className="metrics">
+              <div className="metric-card">
+                <span className="label">Total de Variações</span>
+                <span className="value">{metrics?.total_variants || 0}</span>
+              </div>
+              <div className="metric-card">
+                <span className="label">Patrimônio em Estoque</span>
+                <span className="value">R$ {formatPrice(metrics?.stock_value || 0)}</span>
+              </div>
             </div>
-          </form>
-          <datalist id="operacao-package-names">
-            {operacaoPackageOptions.map((name) => (
-              <option key={name} value={name} />
-            ))}
-          </datalist>
-        </section>
-      ) : null}
+            <div className="card mt-20">
+              <div className="section-header">
+                <h2>Histórico Recente</h2>
+                <select value={movLimit} onChange={(e) => setMovLimit(e.target.value)}>
+                  <option value="12">Últimas 12</option>
+                  <option value="24">Últimas 24</option>
+                  <option value="50">Últimas 50</option>
+                </select>
+              </div>
+              <div className="table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Data/Hora</th>
+                      <th>Produto</th>
+                      <th>Operação</th>
+                      <th>Qtd (un)</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {movimentos.map(mov => (
+                      <tr key={mov.id}>
+                        <td>{formatDateTimePtBr(mov.created_at)}</td>
+                        <td>{corrigirOrtografiaUI(mov.item_name)}</td>
+                        <td><span className={`badge ${mov.movement_type.toLowerCase()}`}>{movimentoLabel[mov.movement_type]}</span></td>
+                        <td style={{ color: mov.units_delta < 0 ? 'var(--danger)' : 'var(--success)', fontWeight: 'bold' }}>
+                          {mov.units_delta > 0 ? `+${mov.units_delta}` : mov.units_delta}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </section>
+        )}
 
-      <section className="panel">
-        <div className="toolbar">
-          <h2>Itens cadastrados</h2>
-          <div className="filters">
-            <input
-              placeholder="Buscar por produto, marca, tipo..."
-              value={search}
-              onChange={(event) => {
-                setSearch(event.target.value);
-              }}
-            />
-            <select
-              value={statusFilter}
-              onChange={(event) => {
-                setPage(1);
-                setStatusFilter(event.target.value);
-              }}
-            >
-              {STATUS_FILTER_OPTIONS.map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
-            <select value={ordering} onChange={(event) => setOrdering(event.target.value)}>
-              {ORDERING_OPTIONS.map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
-          </div>
-        </div>
-
-        {loading && !items.length ? <p>Carregando itens...</p> : null}
-        {!loading && !items.length ? <p>Nenhum item encontrado.</p> : null}
-
-        {items.length ? (
-          <div className="table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>Categoria</th>
-                  <th>Setores</th>
-                  <th>Produto</th>
-                  <th>Marca</th>
-                  <th>Tipo</th>
-                  <th>Tamanho</th>
-                  <th>Preco</th>
-                  <th>Estoque</th>
-                  <th>Ação rápida</th>
-                </tr>
-              </thead>
-              <tbody>
-                {items.map((item) => (
-                  <tr key={item.id}>
-                    <td>{corrigirOrtografiaUI(item.category_name)}</td>
-                    <td>{corrigirOrtografiaUI((item.departments || []).join(", ")) || "-"}</td>
-                    <td>{corrigirOrtografiaUI(item.product_name)}</td>
-                    <td>{corrigirOrtografiaUI(item.brand)}</td>
-                    <td>{corrigirOrtografiaUI(item.variant_label || "Padrão")}</td>
-                    <td>{corrigirOrtografiaUI(item.package_size)}</td>
-                    <td>{formatCurrency(item.price)}</td>
-                    <td>
-                      <span className={item.stock < 5 ? "tag warning" : "tag good"}>
-                        {item.stock}
-                      </span>
-                    </td>
-                    <td>
-                      {canWrite ? (
-                        <div className="quick-restock">
-                          <input
-                            type="number"
-                            min="1"
-                            step="1"
-                            value={restockQty[item.id] || 1}
-                            onChange={(event) =>
-                              setRestockQty((prev) => ({
-                                ...prev,
-                                [item.id]: event.target.value,
-                              }))
-                            }
-                          />
-                          <select
-                            value={restockPackage[item.id] || "UNIDADE"}
-                            onChange={(event) =>
-                              setRestockPackage((prev) => ({
-                                ...prev,
-                                [item.id]: event.target.value,
-                              }))
-                            }
-                          >
-                            {(item.packages || []).length ? (
-                              item.packages.map((pack) => (
-                                <option key={pack.id} value={pack.name}>
-                                  {pack.name} ({pack.units_per_package} un)
-                                </option>
-                              ))
-                            ) : (
-                              <option value="UNIDADE">UNIDADE (1 un)</option>
-                            )}
-                          </select>
-                          <button type="button" onClick={() => handleRestock(item.id)}>
-                            Repor
-                          </button>
-                        </div>
-                      ) : (
-                        <span className="muted">Somente leitura</span>
-                      )}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        ) : null}
-
-        <div className="pager">
-          <button
-            type="button"
-            className="ghost"
-            disabled={page <= 1}
-            onClick={() => setPage((prev) => prev - 1)}
-          >
-            Anterior
-          </button>
-          <span>
-            Página {page} de {pageCount}
-          </span>
-          <button
-            type="button"
-            className="ghost"
-            disabled={page >= pageCount}
-            onClick={() => setPage((prev) => prev + 1)}
-          >
-            Próxima
-          </button>
-        </div>
-      </section>
-
-      <section className="panel">
-        <div className="toolbar">
-          <h2>Movimentacoes recentes</h2>
-          <div className="filters">
-            <select value={movimentosLimit} onChange={(event) => setMovimentosLimit(event.target.value)}>
-              {MOVIMENTO_LIMIT_OPTIONS.map((limit) => (
-                <option key={limit} value={limit}>
-                  {`Últimas ${limit}`}
-                </option>
-              ))}
-            </select>
-          </div>
-        </div>
-        {!movimentos.length ? <p>Sem movimentações recentes.</p> : null}
-        {movimentos.length ? (
-          <div className="table-wrap movements-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>Data</th>
-                  <th>Item</th>
-                  <th>Tipo</th>
-                  <th>Variacao</th>
-                  <th>Embalagem</th>
-                  <th>Delta (un)</th>
-                </tr>
-              </thead>
-              <tbody>
-                {movimentos.map((mov) => (
-                  <tr key={mov.id}>
-                    <td>{formatDateTimePtBr(mov.created_at)}</td>
-                    <td>{corrigirOrtografiaUI(mov.item_name)}</td>
-                    <td>{movimentoLabel[mov.movement_type] || mov.movement_type}</td>
-                    <td>{corrigirOrtografiaUI(mov.variant_label || "Padrão")}</td>
-                    <td>{corrigirOrtografiaUI(mov.package_name || "-")}</td>
-                    <td>{mov.units_delta > 0 ? `+${mov.units_delta}` : mov.units_delta}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        ) : null}
-      </section>
-
-      {error ? <p className="feedback error">{error}</p> : null}
-      {toast ? <p className="feedback success">{toast}</p> : null}
+        {/* Mensagens Flutuantes */}
+        {error && <div className="feedback error fade-in">{error}</div>}
+        {toast && <div className="feedback success fade-in">{toast}</div>}
       </main>
     </>
   );
 }
-
-export default App;
-
-
-
-
