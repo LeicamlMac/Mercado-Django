@@ -20,14 +20,14 @@ const MOVIMENTO_ENDPOINTS = {
 };
 
 const emptyQuickForm = {
-  department_names: [],
   category_name: "",
-  name: "",
+  product_name: "",
   brand: "",
-  variant_label: "Padrão",
+  variant_label: "",
   package_size: "Unidade",
   price: "",
-  initial_stock: 0,
+  quantity: 0,
+  department_names: [], 
 };
 
 function formatPrice(val) {
@@ -63,6 +63,8 @@ export default function App() {
     return saved ? JSON.parse(saved) : null;
   });
 
+  const [vendaSearch, setVendaSearch] = useState("");
+  const [cart, setCart] = useState([]);
   const [activeTab, setActiveTab] = useState("estoque");
   const [theme, setTheme] = useState(() => localStorage.getItem(THEME_STORAGE_KEY) || "light");
   const [items, setItems] = useState([]);
@@ -155,6 +157,31 @@ export default function App() {
     );
   }
 
+  const finalizarVenda = async () => {
+    if (cart.length === 0) return;
+    
+    setLoading(true);
+    try {
+      for (const item of cart) {
+        await fetchWithAuth(MOVIMENTO_ENDPOINTS.SELL, {
+          method: "POST",
+          body: JSON.stringify({
+            variant_id: item.variant_id,
+            quantity_units: item.quantity 
+          }),
+        });
+      }
+      
+      setToast("Venda de todos os itens realizada com sucesso!");
+      setCart([]); // Limpa o carrinho após o sucesso
+      loadData();  // Atualiza o estoque na tabela principal
+    } catch (e) {
+      setError("Erro ao processar um ou mais itens da venda.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
   return (
     <>
       <header className="main-header">
@@ -222,46 +249,94 @@ export default function App() {
 
         {/* ABA: VENDAS */}
         {activeTab === "vendas" && (
-          <section className="card fade-in">
-            <div className="section-header">
-              <h2>Registrar Venda</h2>
-              <p className="subtitle">Saída imediata de produtos do estoque.</p>
-            </div>
-            <form className="operation-form" onSubmit={async (e) => {
-              e.preventDefault();
-              const formData = new FormData(e.target);
-              const data = {
-                variant_id: formData.get("variant_id"),
-                quantity_units: parseInt(formData.get("quantity")),
-              };
-              const res = await fetchWithAuth(MOVIMENTO_ENDPOINTS.SELL, {
-                method: "POST",
-                body: JSON.stringify(data),
-              });
-              if (res?.ok) {
-                setToast("Venda registrada com sucesso!");
-                loadData();
-                e.target.reset();
-              } else { setError("Erro na venda. Verifique se há estoque suficiente."); }
-            }}>
-              <div className="form-group">
-                <label>Produto</label>
-                <select name="variant_id" required>
-                  <option value="">Selecione um item...</option>
-                  {items.filter(i => i.stock > 0).map(item => (
-                    <option key={item.id} value={item.id}>
-                      {item.product_name} - {item.variant_label} (Disponível: {item.stock})
-                    </option>
-                  ))}
-                </select>
+          <>
+            <section className="card fade-in">
+              <div className="section-header">
+                <h2>Registrar Venda</h2>
               </div>
-              <div className="form-group">
-                <label>Quantidade</label>
-                <input name="quantity" type="number" min="1" defaultValue="1" required />
-              </div>
-              <button type="submit" className="btn-primary">Confirmar Venda</button>
-            </form>
-          </section>
+              <form className="operation-form" onSubmit={(e) => {
+                e.preventDefault();
+                const formData = new FormData(e.target);
+                const qty = parseInt(formData.get("quantity"));
+                const vid = formData.get("variant_id");
+                const item = items.find(i => i.id === parseInt(vid));
+
+                if (item && qty > 0) {
+                  if (qty > item.stock) {
+                    setError("Quantidade maior que o estoque!");
+                    return;
+                  }
+                  setCart([...cart, {
+                    variant_id: item.id,
+                    product_name: item.product_name,
+                    brand: item.brand,
+                    variant_label: item.variant_label,
+                    price: item.price,
+                    quantity: qty,
+                    subtotal: item.price * qty
+                  }]);
+                  e.target.reset();
+                }
+              }}>
+                <div className="form-group">
+                  <label>Produto</label>
+                  <div className="filters">
+                    <input type="text" placeholder="Buscar produto..." value={search} onChange={(e) => setSearch(e.target.value)} className="search-input" />
+                  </div>
+                  <select name="variant_id" required>
+                    <option value="">Selecione um item...</option>
+                    {items.map(item => (
+                      <option key={item.id} value={item.id}>
+                        {item.product_name} | {item.brand} | {item.variant_label} - R$ {formatPrice(item.price)} ({item.stock} disponíveis)
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div className="form-group">
+                  <label>Quantidade</label>
+                  <input name="quantity" type="number" min="1" defaultValue="1" required />
+                </div>
+                <button type="submit" className="btn-primary">Adicionar ao Carrinho</button>
+              </form>
+            </section>
+
+            {/* Tabela do Carrinho */}
+            {cart.length > 0 && (
+              <section className="card mt-20 fade-in">
+                <h3>🛒 Itens no Carrinho ({cart.length})</h3>
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Produto</th>
+                      <th>Marca</th>
+                      <th>Qtd</th>
+                      <th>Subtotal</th>
+                      <th>Ação</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {cart.map((item, index) => (
+                      <tr key={index}>
+                        <td>{item.product_name} ({item.variant_label})</td>
+                        <td>{item.brand}</td>
+                        <td>{item.quantity}</td>
+                        <td>R$ {formatPrice(item.subtotal)}</td>
+                        <td>
+                          <button onClick={() => setCart(cart.filter((_, i) => i !== index))} className="btn-icon">🗑️</button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                <div className="cart-footer mt-20">
+                  <h3>Total: R$ {formatPrice(cart.reduce((acc, cur) => acc + cur.subtotal, 0))}</h3>
+                  <button onClick={finalizarVenda} className="btn-success w-100" disabled={loading}>
+                    {loading ? "Processando..." : "FINALIZAR VENDA COMPLETA"}
+                  </button>
+                </div>
+              </section>
+            )}
+          </>
         )}
 
         {/* ABA: ENTRADA */}
@@ -276,7 +351,12 @@ export default function App() {
               setLoading(true);
               const res = await fetchWithAuth("/api/items/quick-entry/", {
                 method: "POST",
-                body: JSON.stringify(quickForm),
+                body: JSON.stringify({
+                  ...quickForm,
+                  price: parseFloat(quickForm.price) || 0,
+                  quantity: parseInt(quickForm.quantity) || 0,
+                  department_names: [] // Garante que o campo obrigatório do Serializer vá vazio
+                }),
               });
               if (res?.ok) {
                 setToast("Entrada processada com sucesso!");
@@ -286,15 +366,20 @@ export default function App() {
               setLoading(false);
             }}>
               <div className="form-row">
-                <input placeholder="Nome do Produto" value={quickForm.name} onChange={e => setQuickForm({...quickForm, name: e.target.value})} required />
+                <input placeholder="Nome do Produto" value={quickForm.product_name} onChange={e => setQuickForm({...quickForm, product_name: e.target.value})} required />
                 <input placeholder="Marca" value={quickForm.brand} onChange={e => setQuickForm({...quickForm, brand: e.target.value})} />
+                <input 
+                placeholder="Variação (ex: Zero, Diet, Morango)" 
+                value={quickForm.variant_label} 
+                onChange={e => setQuickForm({...quickForm, variant_label: e.target.value})} 
+              />
               </div>
               <div className="form-row">
                 <input placeholder="Categoria (ex: Bebidas)" value={quickForm.category_name} onChange={e => setQuickForm({...quickForm, category_name: e.target.value})} required />
                 <input placeholder="Preço de Venda" type="number" step="0.01" value={quickForm.price} onChange={e => setQuickForm({...quickForm, price: e.target.value})} required />
               </div>
               <div className="form-row">
-                <input placeholder="Qtd. Inicial" type="number" value={quickForm.initial_stock} onChange={e => setQuickForm({...quickForm, initial_stock: e.target.value})} />
+                <input placeholder="Qtd. Inicial" type="number" value={quickForm.quantity} onChange={e => setQuickForm({...quickForm, quantity: e.target.value})} />
                 <select value={quickForm.package_size} onChange={e => setQuickForm({...quickForm, package_size: e.target.value})}>
                   <option value="Unidade">Unidade</option>
                   <option value="1KG">1 KG</option>
@@ -336,6 +421,7 @@ export default function App() {
                     <tr>
                       <th>Data/Hora</th>
                       <th>Produto</th>
+                      <th>Marca</th>
                       <th>Operação</th>
                       <th>Qtd (un)</th>
                     </tr>
@@ -345,6 +431,7 @@ export default function App() {
                       <tr key={mov.id}>
                         <td>{formatDateTimePtBr(mov.created_at)}</td>
                         <td>{corrigirOrtografiaUI(mov.item_name)}</td>
+                        <td>{mov.brand}</td>
                         <td><span className={`badge ${mov.movement_type.toLowerCase()}`}>{movimentoLabel[mov.movement_type]}</span></td>
                         <td style={{ color: mov.units_delta < 0 ? 'var(--danger)' : 'var(--success)', fontWeight: 'bold' }}>
                           {mov.units_delta > 0 ? `+${mov.units_delta}` : mov.units_delta}

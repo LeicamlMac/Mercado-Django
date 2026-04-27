@@ -134,6 +134,7 @@ class StockMovementSerializer(serializers.ModelSerializer):
     package_name = serializers.CharField(source="package.name", read_only=True)
     item_name = serializers.CharField(source="variant.product.name", read_only=True)
     variant_label = serializers.CharField(source="variant.variant_label", read_only=True)
+    brand = serializers.CharField(source="variant.product.brand", read_only=True)
 
     class Meta:
         model = StockMovement
@@ -141,6 +142,7 @@ class StockMovementSerializer(serializers.ModelSerializer):
             "id",
             "variant",
             "item_name",
+            "brand",
             "variant_label",
             "movement_type",
             "package",
@@ -208,7 +210,7 @@ class PackageMovementActionSerializer(serializers.Serializer):
 
 class AdjustStockSerializer(serializers.Serializer):
     variant_id = serializers.IntegerField()
-    quantity_units = serializers.IntegerField()
+    quantity = serializers.IntegerField()
     notes = serializers.CharField(max_length=255, required=False, allow_blank=True)
 
 

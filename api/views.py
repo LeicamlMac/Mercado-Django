@@ -622,7 +622,6 @@ class ProductMetricsView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
-        # 1. Métricas de Inventário (O que você já tem)
         inventory_data = ProductVariant.objects.aggregate(
             total_variants=Count("id"),
             active_variants=Count("id", filter=Q(is_active=True)),
@@ -630,27 +629,20 @@ class ProductMetricsView(APIView):
             low_stock_count=Count("id", filter=Q(stock__lt=5)),
         )
 
-        # 2. Métricas Financeiras (O que o RF08 pede)
-        # Soma total de vendas (Faturamento)
         faturamento = StockMovement.objects.filter(
             movement_type=StockMovement.MOVEMENT_SELL
         ).aggregate(total=Sum(F("units_delta") * F("variant__price"))).get("total") or 0
         
-        # Soma de despesas PAGAS (RF06)
-        # Nota: Certifique-se de que seu modelo de Expense tenha o campo 'paga'
-        # Correção para a ProductMetricsView (ou onde estiver a linha 640)
         despesas = Expense.objects.aggregate(total=Sum("amount")).get("total") or 0
 
         saldo_caixa = abs(faturamento) - despesas
 
         return Response(
             {
-                # Backward compatible payload expected by current frontend.
                 "total_variants": inventory_data.get("total_variants") or 0,
                 "active_variants": inventory_data.get("active_variants") or 0,
                 "total_stock": inventory_data.get("total_stock") or 0,
                 "low_stock_count": inventory_data.get("low_stock_count") or 0,
-                # New grouped sections can be consumed by future screens.
                 "inventory": inventory_data,
                 "financial": {
                     "faturamento_mensal": abs(faturamento),
@@ -941,7 +933,6 @@ class CatalogPresetsView(APIView):
             .distinct()
         )
 
-        # Include local rule vocabulary so first runs already have practical suggestions.
         for rule in product_rules:
             canonical = (rule.get("products") or [""])[0]
             if canonical:
@@ -1022,7 +1013,6 @@ class CatalogLookupView(APIView):
             merged_items = []
             seen_keys = set()
             external_serialized = [entry.__dict__ for entry in external_items]
-            # Prefer stock items first so assistant reflects everything already registered.
             ordered_sources = (
                 stock_items + external_serialized + local_items
                 if bluesoft_ready
@@ -1090,7 +1080,6 @@ class MonthlyReportView(APIView):
         month = request.query_params.get('month', datetime.now().month)
         year = request.query_params.get('year', datetime.now().year)
 
-        # 1. Total de Vendas (saídas de stock do tipo 'SELL')
         total_sales = StockMovement.objects.filter(
             movement_type='SELL',
             created_at__month=month,
@@ -1099,10 +1088,8 @@ class MonthlyReportView(APIView):
             total=Sum(F('units_delta') * F('variant__price'))
         )['total'] or 0
         
-        # units_delta para converter para valor positivo, já que vendas são registradas como negativo no estoque
         total_sales = abs(total_sales)
 
-        #Total de Despesas
         total_expenses = Expense.objects.filter(
             date__month=month,
             date__year=year

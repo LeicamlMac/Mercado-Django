@@ -149,6 +149,17 @@ td {
 
 tr:last-child td { border-bottom: none; }
 
+.operation-form .search-input {
+  border-bottom-left-radius: 0;
+  border-bottom-right-radius: 0;
+  border-bottom: none;
+}
+
+.operation-form select {
+  border-top-left-radius: 0;
+  border-top-right-radius: 0;
+}
+
 .operation-form {
   display: flex;
   flex-direction: column;
