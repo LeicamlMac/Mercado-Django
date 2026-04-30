@@ -1,5 +1,14 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+﻿import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import "./App.css";
+import { LoginView, AuthLoadingView } from "./components/auth/AuthViews";
+import { DashboardHeader } from "./components/dashboard/DashboardHeader";
+import { MetricsSection } from "./components/dashboard/MetricsSection";
+import { SectorsSection } from "./components/dashboard/SectorsSection";
+import { SeasonalCampaignsSection } from "./components/dashboard/SeasonalCampaignsSection";
+import { QuickEntryPanel } from "./components/dashboard/QuickEntryPanel";
+import { OperationsPanel } from "./components/dashboard/OperationsPanel";
+import { InventoryPanel } from "./components/dashboard/InventoryPanel";
+import { ThemeToggleButton } from "./components/ui/ThemeToggleButton";
 import {
   DEFAULT_ORDERING,
   DEFAULT_VARIANT_LABEL,
@@ -53,13 +62,6 @@ function loadUiPreference(key, fallback) {
   }
 }
 
-function ThemeToggleButton({ theme, onToggle }) {
-  return (
-    <button type="button" className="theme-toggle" onClick={onToggle}>
-      {theme === "dark" ? "Claro" : "Escuro"}
-    </button>
-  );
-}
 function App() {
   const inventorySearchRef = useRef(null);
   const quickEntrySectionRef = useRef(null);
@@ -1417,9 +1419,7 @@ function App() {
     return (
       <>
         <ThemeToggleButton theme={theme} onToggle={toggleTheme} />
-        <main className="layout">
-          <p>Validando sessão...</p>
-        </main>
+        <AuthLoadingView />
       </>
     );
   }
@@ -1428,46 +1428,13 @@ function App() {
     return (
       <>
         <ThemeToggleButton theme={theme} onToggle={toggleTheme} />
-        <main className="layout">
-          <header className="hero">
-            <p className="eyebrow">Mercado Stack</p>
-            <h1>Entrar</h1>
-            <p>Use um usuário cadastrado para acessar o sistema.</p>
-          </header>
-          <section className="panel auth-card">
-            <form className="form-grid" onSubmit={handleLogin}>
-              <label>
-                Usuário
-                <input
-                  value={loginForm.username}
-                  onChange={(event) =>
-                    setLoginForm((prev) => ({ ...prev, username: event.target.value }))
-                  }
-                />
-              </label>
-              <label>
-                Senha
-                <input
-                  type="password"
-                  value={loginForm.password}
-                  onChange={(event) =>
-                    setLoginForm((prev) => ({ ...prev, password: event.target.value }))
-                  }
-                />
-              </label>
-              <div className="actions full-width">
-                <button type="submit" disabled={loginLoading}>
-                  {loginLoading ? "Entrando..." : "Entrar"}
-                </button>
-              </div>
-            </form>
-            {authError ? <p className="feedback error">{authError}</p> : null}
-            <p className="hint">
-              Usuários de teste: <code>manager / Manager@123</code> e{" "}
-              <code>viewer / Viewer@123</code>
-            </p>
-          </section>
-        </main>
+        <LoginView
+          loginForm={loginForm}
+          setLoginForm={setLoginForm}
+          handleLogin={handleLogin}
+          loginLoading={loginLoading}
+          authError={authError}
+        />
       </>
     );
   }
@@ -1476,42 +1443,13 @@ function App() {
     <>
       <ThemeToggleButton theme={theme} onToggle={toggleTheme} />
       <main className="layout">
-      <header className="hero topbar">
-        <div>
-          <p className="eyebrow">Mercado Stack</p>
-          <h1>Gestao de estoque</h1>
-          <p>Cadastro por categoria e movimentação por embalagem (fardo, caixa, unidade).</p>
-        </div>
-        <div className="session-box">
-          <strong>{session.username}</strong>
-          <span>{canWrite ? "Gerente de catálogo" : "Visualizador"}</span>
-          <button type="button" className="ghost" onClick={logout}>
-            Sair
-          </button>
-        </div>
-      </header>
+      <DashboardHeader username={session.username} canWrite={canWrite} onLogout={logout} />
 
-      <section className="metrics">
-        <article className={metricsLoading ? "metric-card loading" : "metric-card"}>
-          <span>Total de variacoes</span>
-          <strong>{metricsLoading ? "..." : metrics.total_variants}</strong>
-        </article>
-        <article className={metricsLoading ? "metric-card loading" : "metric-card"}>
-          <span>Ativas</span>
-          <strong>{metricsLoading ? "..." : metrics.active_variants}</strong>
-        </article>
-        <article className={metricsLoading ? "metric-card loading" : "metric-card"}>
-          <span>Estoque total</span>
-          <strong>{metricsLoading ? "..." : metrics.total_stock}</strong>
-        </article>
-        <article className={metricsLoading ? "metric-card loading" : "metric-card"}>
-          <span>Baixo estoque</span>
-          <strong>{metricsLoading ? "..." : metrics.low_stock_count}</strong>
-        </article>
-      </section>
-      <p className="hint inline-hint">
-        Ultima atualizacao de metricas: <strong>{metricsUpdatedLabel}</strong>
-      </p>
+      <MetricsSection
+        metricsLoading={metricsLoading}
+        metrics={metrics}
+        metricsUpdatedLabel={metricsUpdatedLabel}
+      />
 
       <section className="panel dashboard-panel">
         <div className="toolbar">
@@ -1562,832 +1500,124 @@ function App() {
         </p>
       </section>
 
-      <section className="panel">
-        <h2>Setores</h2>
-        <p className="hint">
-          Setor ativo: <strong>{corrigirOrtografiaUI(setorAtivoNome)}</strong>
-        </p>
-        <div className="tabs-setores">
-          <button
-            type="button"
-            className={setorAtivoId === "all" ? "tab-setor ativo" : "tab-setor"}
-            onClick={handleSetorTodos}
-          >
-            Todos
-          </button>
-          {setores.map((setor) => (
-            <button
-              key={setor.id}
-              type="button"
-              className={String(setor.id) === String(setorAtivoId) ? "tab-setor ativo" : "tab-setor"}
-              onClick={() => handleSetorSelect(setor.id)}
-            >
-              {corrigirOrtografiaUI(setor.name)}
-            </button>
-          ))}
-        </div>
-      </section>
+      <SectorsSection
+        setorAtivoId={setorAtivoId}
+        setorAtivoNome={setorAtivoNome}
+        setores={setores}
+        onSetorTodos={handleSetorTodos}
+        onSetorSelect={handleSetorSelect}
+        corrigirOrtografiaUI={corrigirOrtografiaUI}
+      />
 
-      <section className="panel seasonal-panel">
-        <div className="toolbar">
-          <h2>Sazonais e festividades</h2>
-          <span className="muted">Mês atual: {currentMonthLabel}</span>
-        </div>
-        <p className="hint">
-          Clique em uma campanha para preencher a busca com os itens da época e ajustar seu mix rapidamente.
-        </p>
-        <div className="seasonal-grid">
-          {seasonalCampaigns.map((campaign) => (
-            <article
-              key={campaign.id}
-              className={
-                campaign.id === activeSeasonalCampaignId
-                  ? "seasonal-card selecionado"
-                  : campaign.activeNow
-                    ? "seasonal-card ativo"
-                    : "seasonal-card"
-              }
-            >
-              <strong>{campaign.name}</strong>
-              <p>{campaign.description}</p>
-              <div className="seasonal-keywords">
-                {campaign.keywords.slice(0, 5).map((keyword) => (
-                  <span key={`${campaign.id}-${keyword}`} className="catalog-usage-badge">
-                    {corrigirOrtografiaUI(keyword)}
-                  </span>
-                ))}
-              </div>
-              <div className="actions">
-                <button
-                  type="button"
-                  className="ghost"
-                  onClick={() => applySeasonalFilter(campaign)}
-                >
-                  {campaign.id === activeSeasonalCampaignId ? "Campanha aplicada" : "Filtrar campanha"}
-                </button>
-              </div>
-            </article>
-          ))}
-        </div>
-      </section>
+      <SeasonalCampaignsSection
+        currentMonthLabel={currentMonthLabel}
+        seasonalCampaigns={seasonalCampaigns}
+        activeSeasonalCampaignId={activeSeasonalCampaignId}
+        applySeasonalFilter={applySeasonalFilter}
+        corrigirOrtografiaUI={corrigirOrtografiaUI}
+      />
 
-      {canWrite ? (
-        <section className="panel" ref={quickEntrySectionRef}>
-          <h2>Entrada rápida (cria ou repõe automaticamente)</h2>
-          <p className="hint">
-            Dica: ao informar o produto (ex: Leite, Arroz, Refrigerante), o formulário
-            sugere automaticamente tipo, tamanho e embalagem mais comum.
-          </p>
-          <div className="catalog-assistant">
-            <h3>Assistente de catálogo</h3>
-            <p className="hint">
-              Fonte ativa: {catalogMeta.bluesoft_configurada ? "Bluesoft + local" : "Catálogo local (configure Bluesoft)"}.
-              {catalogMeta.resultados_bluesoft || catalogMeta.resultados_locais || catalogMeta.resultados_estoque
-                ? ` Resultados: estoque ${catalogMeta.resultados_estoque || 0}, Bluesoft ${catalogMeta.resultados_bluesoft || 0}, local ${catalogMeta.resultados_locais || 0}.`
-                : ""}
-            </p>
-            <p className="hint">
-              Para selecionar 2 ou mais marcas no mesmo lançamento, abra as marcas desejadas, adicione cada uma ao lote e depois clique em <strong>Salvar lote</strong>.
-            </p>
-            <div className="catalog-search-row">
-              <input
-                value={barcodeQuery}
-                onChange={(event) => setBarcodeQuery(event.target.value)}
-                placeholder="Código de barras (EAN/GTIN)"
-              />
-              <button type="button" onClick={handleCatalogBarcodeLookup} disabled={catalogLoading}>
-                {catalogLoading ? "Buscando..." : "Buscar por código"}
-              </button>
-            </div>
-            <div className="catalog-search-row">
-              <input
-                value={catalogQuery}
-                onChange={(event) => setCatalogQuery(event.target.value)}
-                onKeyDown={(event) => {
-                  if (event.key === "Enter") {
-                    event.preventDefault();
-                    handleCatalogSearch();
-                  }
-                }}
-                placeholder="Pesquisar produto no catálogo (ex: refrigerante cola)"
-              />
-              <button type="button" className="ghost" onClick={handleCatalogSearch} disabled={catalogLoading}>
-                Pesquisar nome
-              </button>
-            </div>
-            {smartCatalogGroups.length ? (
-              <div className="catalog-results">
-                {catalogBatchEntries.length ? (
-                  <article className="catalog-item full-width">
-                    <div>
-                      <strong>Lote pronto: {catalogBatchEntries.length} item(ns)</strong>
-                      <p>
-                        {catalogBatchEntries
-                          .slice(0, 3)
-                          .map((entry) =>
-                            `${corrigirOrtografiaUI(entry.product_name)} ${corrigirOrtografiaUI(entry.variant_label)} — ${corrigirOrtografiaUI(entry.brand)} — ${formatarTamanhoUI(entry.package_size)} x${entry.quantity}`
-                          )
-                          .join(" | ")}
-                        {catalogBatchEntries.length > 3 ? " | ..." : ""}
-                      </p>
-                    </div>
-                    <div className="actions">
-                      <button type="button" onClick={applyCatalogBatchSelections} disabled={catalogBatchSaving}>
-                        {catalogBatchSaving ? "Processando lote..." : "Salvar lote"}
-                      </button>
-                      <button type="button" className="ghost" onClick={() => setCatalogBatchEntries([])}>
-                        Limpar lote
-                      </button>
-                    </div>
-                  </article>
-                ) : null}
-                {smartCatalogGroups.map((group) => {
-                  const produtoUi = corrigirOrtografiaUI(group.product_name);
-                  const marcaUi = corrigirOrtografiaUI(group.brand);
-                  const categoriaUi = corrigirOrtografiaUI(group.category);
-                  const usageCount = Number(catalogUsageHistory[group.key] || 0);
-                  const expanded = expandedCatalogGroups.includes(group.key);
-                  const variantOptions = getGroupVariantOptions(group);
-                  const choice = catalogChoices[group.key] || {
-                    variant: variantOptions[0] || "Tradicional",
-                    size: "",
-                    quantity: "1",
-                  };
-                  const sizeOptions = getGroupSizeOptions(
-                    group,
-                    choice.variant || variantOptions[0] || "Tradicional"
-                  );
-                  const uniqueSizes = Array.from(new Set(sizeOptions));
-                  return (
-                  <article
-                    key={group.key}
-                    className="catalog-item"
-                  >
-                    <div>
-                      <strong>
-                        {`${produtoUi} — ${marcaUi}`}
-                      </strong>
-                      <p>
-                        {categoriaUi} - fonte: {group.source} - {group.options.length} variações no estoque -{" "}
-                        {variantOptions.length} tipos exibidos
-                      </p>
-                      {usageCount > 0 ? (
-                        <p className="catalog-usage-badge">
-                          Mais usado: {usageCount}x
-                        </p>
-                      ) : null}
-                    </div>
-                    <div>
-                      <button
-                        type="button"
-                        className="ghost"
-                        onClick={() => {
-                          if (expanded) {
-                            setExpandedCatalogGroups((prev) => prev.filter((key) => key !== group.key));
-                            return;
-                          }
-                          selectCatalogBrand(group);
-                        }}
-                      >
-                        {expanded ? "Fechar seleção" : "Selecionar marca"}
-                      </button>
-                    </div>
-                    {expanded ? (
-                      <div className="form-grid" style={{ marginTop: "0.75rem" }}>
-                        <label>
-                          Tipo
-                          <select
-                            value={choice.variant}
-                            onChange={(event) =>
-                              updateCatalogChoice(
-                                group.key,
-                                { variant: event.target.value, size: "" },
-                                variantOptions[0] || "Tradicional"
-                              )
-                            }
-                          >
-                            {variantOptions.map((name) => (
-                              <option key={name} value={name}>
-                                {corrigirOrtografiaUI(name)}
-                              </option>
-                            ))}
-                          </select>
-                        </label>
-                        <label>
-                          Tamanho/Litros
-                          <select
-                            value={choice.size}
-                            onChange={(event) =>
-                              updateCatalogChoice(
-                                group.key,
-                                { size: event.target.value },
-                                variantOptions[0] || "Tradicional"
-                              )
-                            }
-                          >
-                            <option value="">Selecione...</option>
-                            {uniqueSizes.map((size) => (
-                              <option key={size} value={size}>
-                                {formatarTamanhoUI(size)}
-                              </option>
-                            ))}
-                          </select>
-                        </label>
-                        <label>
-                          Quantidade
-                          <input
-                            type="number"
-                            min="1"
-                            step="1"
-                            value={choice.quantity}
-                            onChange={(event) =>
-                              updateCatalogChoice(
-                                group.key,
-                                { quantity: event.target.value },
-                                variantOptions[0] || "Tradicional"
-                              )
-                            }
-                          />
-                        </label>
-                        <div className="actions">
-                          <button type="button" className="ghost" onClick={() => addCatalogBrandSelection(group)}>
-                            Adicionar ao lote
-                          </button>
-                          <button type="button" onClick={() => applyCatalogBrandSelection(group)}>
-                            Usar no formulário
-                          </button>
-                        </div>
-                      </div>
-                    ) : null}
-                  </article>
-                  );
-                })}
-              </div>
-            ) : null}
-          </div>
-          <p className="hint">
-            Fluxo recomendado: use o Assistente de catálogo, adicione os itens ao lote e finalize em <strong>Salvar lote</strong>.
-          </p>
-        </section>
-      ) : (
-        <section className="panel">
-          <p className="feedback">Modo visualização. Cadastro e reposição bloqueados.</p>
-        </section>
-      )}
+      <QuickEntryPanel
+        canWrite={canWrite}
+        quickEntrySectionRef={quickEntrySectionRef}
+        catalogMeta={catalogMeta}
+        barcodeQuery={barcodeQuery}
+        setBarcodeQuery={setBarcodeQuery}
+        handleCatalogBarcodeLookup={handleCatalogBarcodeLookup}
+        catalogLoading={catalogLoading}
+        catalogQuery={catalogQuery}
+        setCatalogQuery={setCatalogQuery}
+        handleCatalogSearch={handleCatalogSearch}
+        smartCatalogGroups={smartCatalogGroups}
+        catalogBatchEntries={catalogBatchEntries}
+        applyCatalogBatchSelections={applyCatalogBatchSelections}
+        catalogBatchSaving={catalogBatchSaving}
+        setCatalogBatchEntries={setCatalogBatchEntries}
+        catalogUsageHistory={catalogUsageHistory}
+        expandedCatalogGroups={expandedCatalogGroups}
+        setExpandedCatalogGroups={setExpandedCatalogGroups}
+        getGroupVariantOptions={getGroupVariantOptions}
+        catalogChoices={catalogChoices}
+        getGroupSizeOptions={getGroupSizeOptions}
+        updateCatalogChoice={updateCatalogChoice}
+        selectCatalogBrand={selectCatalogBrand}
+        addCatalogBrandSelection={addCatalogBrandSelection}
+        applyCatalogBrandSelection={applyCatalogBrandSelection}
+        corrigirOrtografiaUI={corrigirOrtografiaUI}
+        formatarTamanhoUI={formatarTamanhoUI}
+      />
 
-      {canWrite ? (
-        <section className="panel" ref={operationSectionRef}>
-          <h2>Operação de estoque</h2>
-          <p className="hint">
-            Essa seção serve para movimentar estoque de um item já cadastrado: <strong>Receber</strong> (entrada), <strong>Venda</strong> (saída) e <strong>Ajuste</strong> (corrigir contagem).
-          </p>
-          <div className="operation-cards">
-            <article className="operation-card">
-              <span>Item selecionado</span>
-              <strong>{operacaoItemSelecionado?.label || "Nenhum item"}</strong>
-            </article>
-            <article className="operation-card">
-              <span>Estoque atual</span>
-              <strong>{operacaoItemSelecionado ? operacaoItemSelecionado.stock : "-"}</strong>
-            </article>
-            <article className="operation-card">
-              <span>Última movimentação</span>
-              <strong>
-                {operacaoContextLoading
-                  ? "Carregando..."
-                  : operacaoLastMovement
-                    ? `${movimentoLabel[operacaoLastMovement.movement_type] || operacaoLastMovement.movement_type} (${operacaoLastMovement.units_delta > 0 ? "+" : ""}${operacaoLastMovement.units_delta})`
-                    : "Sem histórico"}
-              </strong>
-            </article>
-            <article className="operation-card">
-              <span>Atualizado em</span>
-              <strong>
-                {formatDateTimePtBr(operacaoItemSelecionado?.updated_at)}
-              </strong>
-            </article>
-          </div>
-          {saving ? (
-            <div className="inline-progress" role="status" aria-live="polite">
-              <span>Registrando movimentacao...</span>
-              <div className="progress-track">
-                <div className="progress-fill animated" style={{ width: "100%" }} />
-              </div>
-            </div>
-          ) : null}
-          <form className="form-grid" onSubmit={handleOperacaoEstoque}>
-            <label>
-              Buscar item
-              <div className="catalog-search-row">
-                <input
-                  value={operacaoSearch}
-                  onChange={(event) => setOperacaoSearch(event.target.value)}
-                  onKeyDown={(event) => {
-                    if (event.key === "Enter") {
-                      event.preventDefault();
-                      handleOperacaoSearchSubmit();
-                    }
-                  }}
-                  placeholder="Digite produto, marca, tipo ou tamanho..."
-                />
-                <button
-                  type="button"
-                  className="ghost"
-                  onClick={handleOperacaoSearchSubmit}
-                  disabled={operacaoSearching}
-                >
-                  Buscar
-                </button>
-              </div>
-            </label>
-            <label>
-              Item
-              <select
-                value={operacaoForm.variant_id}
-                onChange={(event) =>
-                  setOperacaoForm((prev) => ({ ...prev, variant_id: event.target.value }))
-                }
-              >
-                <option value="">Selecione...</option>
-                {operacaoItems.map((item) => (
-                  <option key={item.id} value={item.id}>
-                    {item.label}
-                  </option>
-                ))}
-              </select>
-              <span className="muted operation-helper">
-                {operacaoSearching
-                  ? "Buscando itens..."
-                  : operacaoSearch.trim() && !operacaoItems.length
-                    ? "Nenhum item encontrado para essa busca."
-                    : " "}
-              </span>
-            </label>
-            <label>
-              Tipo de movimentação
-              <select
-                value={operacaoForm.tipo}
-                onChange={(event) =>
-                  setOperacaoForm((prev) => ({ ...prev, tipo: event.target.value }))
-                }
-              >
-                <option value="RECEIVE">Receber</option>
-                <option value="SELL">Venda</option>
-                <option value="ADJUST">Ajuste</option>
-              </select>
-            </label>
-            <label>
-              {operacaoForm.tipo === "ADJUST" ? "Ajuste em unidades" : "Quantidade"}
-              <input
-                type="number"
-                min="1"
-                step="1"
-                value={
-                  operacaoForm.tipo === "ADJUST"
-                    ? operacaoForm.quantity_units
-                    : operacaoForm.package_quantity
-                }
-                onChange={(event) =>
-                  setOperacaoForm((prev) =>
-                    operacaoForm.tipo === "ADJUST"
-                      ? { ...prev, quantity_units: event.target.value }
-                      : { ...prev, package_quantity: event.target.value }
-                  )
-                }
-              />
-            </label>
-            <div className="actions full-width">
-              <button
-                type="button"
-                className="ghost"
-                onClick={() => setShowOperacaoAdvanced((prev) => !prev)}
-              >
-                {showOperacaoAdvanced ? "Ocultar detalhes avançados" : "Mostrar detalhes avançados"}
-              </button>
-            </div>
+      <OperationsPanel
+        canWrite={canWrite}
+        operationSectionRef={operationSectionRef}
+        operacaoItemSelecionado={operacaoItemSelecionado}
+        operacaoContextLoading={operacaoContextLoading}
+        operacaoLastMovement={operacaoLastMovement}
+        saving={saving}
+        handleOperacaoEstoque={handleOperacaoEstoque}
+        operacaoSearch={operacaoSearch}
+        setOperacaoSearch={setOperacaoSearch}
+        handleOperacaoSearchSubmit={handleOperacaoSearchSubmit}
+        operacaoSearching={operacaoSearching}
+        operacaoForm={operacaoForm}
+        setOperacaoForm={setOperacaoForm}
+        operacaoItems={operacaoItems}
+        showOperacaoAdvanced={showOperacaoAdvanced}
+        setShowOperacaoAdvanced={setShowOperacaoAdvanced}
+        operacaoPackageOptions={operacaoPackageOptions}
+        movimentoLabel={movimentoLabel}
+        formatDateTimePtBr={formatDateTimePtBr}
+      />
 
-            {showOperacaoAdvanced ? (
-              <>
-                {operacaoForm.tipo !== "ADJUST" ? (
-                  <label>
-                    Embalagem
-                    <input
-                      list="operacao-package-names"
-                      value={operacaoForm.package_name}
-                      onChange={(event) =>
-                        setOperacaoForm((prev) => ({
-                          ...prev,
-                          package_name: event.target.value,
-                        }))
-                      }
-                    />
-                  </label>
-                ) : null}
-                <label>
-                  Observação
-                  <input
-                    value={operacaoForm.notes}
-                    onChange={(event) =>
-                      setOperacaoForm((prev) => ({ ...prev, notes: event.target.value }))
-                    }
-                    placeholder="Ex: compra semanal, venda balcão, ajuste inventário"
-                  />
-                </label>
-              </>
-            ) : (
-              <label className="full-width">
-                Observação rápida (opcional)
-                <input
-                  value={operacaoForm.notes}
-                  onChange={(event) =>
-                    setOperacaoForm((prev) => ({ ...prev, notes: event.target.value }))
-                  }
-                  placeholder="Ex: compra semanal, venda balcão"
-                />
-              </label>
-            )}
-            <div className="actions full-width">
-              <button type="submit" disabled={saving}>
-                {saving ? "Salvando..." : "Registrar movimentação"}
-              </button>
-            </div>
-          </form>
-          <datalist id="operacao-package-names">
-            {operacaoPackageOptions.map((name) => (
-              <option key={name} value={name} />
-            ))}
-          </datalist>
-        </section>
-      ) : null}
-
-      <section className="panel" ref={inventorySectionRef}>
-        <div className="toolbar">
-          <h2>Itens cadastrados</h2>
-          <div className="filters">
-            <input
-              ref={inventorySearchRef}
-              placeholder="Buscar por produto, marca, tipo... (atalho: /)"
-              value={search}
-              onChange={(event) => {
-                if (activeSeasonalCampaignId) {
-                  deactivateSeasonalFilter();
-                }
-                setSearch(event.target.value);
-              }}
-            />
-            <select
-              value={statusFilter}
-              onChange={(event) => {
-                setPage(1);
-                setStatusFilter(event.target.value);
-              }}
-            >
-              {STATUS_FILTER_OPTIONS.map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
-            <select value={ordering} onChange={(event) => setOrdering(event.target.value)}>
-              {ORDERING_OPTIONS.map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
-          </div>
-        </div>
-        {setorAtivoId !== "all" ? (
-          <p className="hint">
-            Exibindo itens do setor <strong>{corrigirOrtografiaUI(setorAtivoNome)}</strong>.
-          </p>
-        ) : null}
-        <div className="inventory-insights">
-          <div className="inventory-summary">
-            <span>{`Visiveis: ${inventorySummary.visible}/${inventorySummary.total}`}</span>
-            <span>{`Criticos: ${inventorySummary.critical}`}</span>
-            <span>{`Avisos: ${inventorySummary.warning}`}</span>
-            <span className="ordering-chip">{`Ordenacao: ${orderingLabel}`}</span>
-          </div>
-          <div className="inventory-filter-chips">
-            <button
-              type="button"
-              className={alertFilter === "all" ? "chip-action active" : "chip-action"}
-              onClick={() => applyAlertFilter("all")}
-            >
-              Todos
-            </button>
-            <button
-              type="button"
-              className={alertFilter === "attention" ? "chip-action active" : "chip-action"}
-              onClick={() => applyAlertFilter("attention")}
-            >
-              Com alerta
-            </button>
-            <button
-              type="button"
-              className={alertFilter === "critical" ? "chip-action active" : "chip-action"}
-              onClick={() => applyAlertFilter("critical")}
-            >
-              Criticos
-            </button>
-            <button
-              type="button"
-              className={alertFilter === "warning" ? "chip-action active" : "chip-action"}
-              onClick={() => applyAlertFilter("warning")}
-            >
-              Avisos
-            </button>
-          </div>
-        </div>
-        {canWrite && inventoryAttentionList.length ? (
-          <div className="attention-box">
-            <h3>Prioridades do turno</h3>
-            <div className="attention-list">
-              {inventoryAttentionList.map((entry) => (
-                <article key={`attention-${entry.item.id}`} className="attention-item">
-                  <div>
-                    <strong>{corrigirOrtografiaUI(entry.item.product_name)}</strong>
-                    <p>
-                      {corrigirOrtografiaUI(entry.item.brand || "Sem marca")} | Estoque: {entry.item.stock} |{" "}
-                      {entry.alerts.map((alert) => alert.label).join(", ")}
-                    </p>
-                  </div>
-                  <button type="button" className="ghost" onClick={() => handlePrepareRestock(entry.item)}>
-                    Preparar reposicao
-                  </button>
-                </article>
-              ))}
-            </div>
-          </div>
-        ) : null}
-        {activeSeasonalCampaign ? (
-          <div className="seasonal-active-banner">
-            <div>
-              <strong>Filtro sazonal ativo: {activeSeasonalCampaign.name}</strong>
-              <p>Busca atual: <strong>{searchApplied || "-"}</strong>.</p>
-              <p>
-                {loading
-                  ? "Atualizando resultados..."
-                  : displayedEntries.length
-                    ? `Resultados na página: ${displayedEntries.length}.`
-                    : "Nenhum resultado para esse termo. Tente outro termo da campanha."}
-              </p>
-              <div className="seasonal-term-chips">
-                {activeSeasonalTerms.map((term) => (
-                  <button
-                    key={`season-term-${term}`}
-                    type="button"
-                    className={normalizarTexto(searchApplied) === normalizarTexto(term) ? "seasonal-chip ativo" : "seasonal-chip"}
-                    onClick={() => applySeasonalTerm(term)}
-                  >
-                    {corrigirOrtografiaUI(term)}
-                  </button>
-                ))}
-              </div>
-            </div>
-            <button type="button" className="ghost" onClick={clearSeasonalFilter}>
-              Limpar filtro sazonal
-            </button>
-          </div>
-        ) : null}
-
-        {error ? (
-          <div className="feedback error inline-feedback">
-            <p>Nao foi possivel carregar os itens agora: {error}</p>
-            <button type="button" className="ghost" onClick={reloadDashboardData}>
-              Tentar novamente
-            </button>
-          </div>
-        ) : null}
-
-        {loading && !displayedEntries.length ? (
-          <div className="table-wrap loading-state">
-            <table>
-              <thead>
-                <tr>
-                  <th>Categoria</th>
-                  <th>Setores</th>
-                  <th>Produto</th>
-                  <th>Marca</th>
-                  <th>Tipo</th>
-                  <th>Tamanho</th>
-                  <th>Preco</th>
-                  <th>Estoque</th>
-                  <th>Alertas</th>
-                  <th>Acao rapida</th>
-                </tr>
-              </thead>
-              <tbody>
-                {skeletonRows.map((row) => (
-                  <tr key={`skeleton-row-${row}`}>
-                    <td colSpan={10}>
-                      <div className="skeleton-line" />
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        ) : null}
-        {!loading && !displayedEntries.length ? (
-          <div className="empty-state">
-            <h3>Nenhum item para exibir</h3>
-            <p>
-              Ajuste os filtros ou limpe a busca para visualizar o inventario completo.
-            </p>
-            <div className="actions">
-              <button
-                type="button"
-                className="ghost"
-                onClick={clearInventoryFilters}
-              >
-                Limpar filtros
-              </button>
-              <button type="button" onClick={reloadDashboardData}>
-                Atualizar agora
-              </button>
-            </div>
-          </div>
-        ) : null}
-
-        {displayedEntries.length ? (
-          <div className="table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>Categoria</th>
-                  <th>Setores</th>
-                  <th>Produto</th>
-                  <th>Marca</th>
-                  <th>Tipo</th>
-                  <th>Tamanho</th>
-                  <th>Preco</th>
-                  <th>Estoque</th>
-                  <th>Alertas</th>
-                  <th>Ação rápida</th>
-                </tr>
-              </thead>
-              <tbody>
-                {displayedEntries.map(({ item, alerts, critical }) => {
-                  const isCritical = critical;
-                  const rowClassName = isCritical
-                    ? "row-alert-critical"
-                    : alerts.length
-                      ? "row-alert-warning"
-                      : "";
-                  return (
-                  <tr key={item.id} className={rowClassName}>
-                    <td>{corrigirOrtografiaUI(item.category_name)}</td>
-                    <td>{corrigirOrtografiaUI((item.departments || []).join(", ")) || "-"}</td>
-                    <td>{corrigirOrtografiaUI(item.product_name)}</td>
-                    <td>{corrigirOrtografiaUI(item.brand)}</td>
-                    <td>{corrigirOrtografiaUI(item.variant_label || "Padrão")}</td>
-                    <td>{formatarTamanhoUI(item.package_size)}</td>
-                    <td>{formatCurrency(item.price)}</td>
-                    <td>
-                      <span className={item.stock < 5 ? "tag warning" : "tag good"}>
-                        {item.stock}
-                      </span>
-                    </td>
-                    <td className="alerts-cell">
-                      {alerts.length ? (
-                        <>
-                          <div className="alerts-badges">
-                            {alerts.map((alert, index) => (
-                              <span
-                                key={`${item.id}-alert-${index}`}
-                                className={`tag ${alert.level === "critical" ? "danger" : "warning"}`}
-                              >
-                                {alert.label}
-                              </span>
-                            ))}
-                          </div>
-                          <p className="alert-suggestion">{alerts[0].suggestion}</p>
-                        </>
-                      ) : (
-                        <span className="tag good">Sem alertas</span>
-                      )}
-                    </td>
-                    <td>
-                      {canWrite ? (
-                        <div className="quick-restock">
-                          <input
-                            type="number"
-                            min="1"
-                            step="1"
-                            value={restockQty[item.id] || 1}
-                            onChange={(event) =>
-                              setRestockQty((prev) => ({
-                                ...prev,
-                                [item.id]: event.target.value,
-                              }))
-                            }
-                          />
-                          <select
-                            value={restockPackage[item.id] || "UNIDADE"}
-                            onChange={(event) =>
-                              setRestockPackage((prev) => ({
-                                ...prev,
-                                [item.id]: event.target.value,
-                              }))
-                            }
-                          >
-                            {(item.packages || []).length ? (
-                              item.packages.map((pack) => (
-                                <option key={pack.id} value={pack.name}>
-                                  {pack.name} ({pack.units_per_package} un)
-                                </option>
-                              ))
-                            ) : (
-                              <option value="UNIDADE">UNIDADE (1 un)</option>
-                            )}
-                          </select>
-                          <button type="button" onClick={() => handleRestock(item.id)}>
-                            Repor
-                          </button>
-                        </div>
-                      ) : (
-                        <span className="muted">Somente leitura</span>
-                      )}
-                    </td>
-                  </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        ) : null}
-
-        {displayedEntries.length ? (
-          <div className="pager">
-            <button
-              type="button"
-              className="ghost"
-              disabled={page <= 1}
-              onClick={() => setPage((prev) => prev - 1)}
-            >
-              Anterior
-            </button>
-            <span>
-              Página {page} de {pageCount}
-            </span>
-            <button
-              type="button"
-              className="ghost"
-              disabled={page >= pageCount}
-              onClick={() => setPage((prev) => prev + 1)}
-            >
-              Próxima
-            </button>
-          </div>
-        ) : null}
-      </section>
-
-      <section className="panel">
-        <div className="toolbar">
-          <h2>Movimentacoes recentes</h2>
-          <div className="filters">
-            <select value={movimentosLimit} onChange={(event) => setMovimentosLimit(event.target.value)}>
-              {MOVIMENTO_LIMIT_OPTIONS.map((limit) => (
-                <option key={limit} value={limit}>
-                  {`Últimas ${limit}`}
-                </option>
-              ))}
-            </select>
-          </div>
-        </div>
-        {!movimentos.length ? <p>Sem movimentações recentes.</p> : null}
-        {movimentos.length ? (
-          <div className="table-wrap movements-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>Data</th>
-                  <th>Item</th>
-                  <th>Tipo</th>
-                  <th>Variacao</th>
-                  <th>Embalagem</th>
-                  <th>Delta (un)</th>
-                </tr>
-              </thead>
-              <tbody>
-                {movimentos.map((mov) => (
-                  <tr key={mov.id}>
-                    <td>{formatDateTimePtBr(mov.created_at)}</td>
-                    <td>{corrigirOrtografiaUI(mov.item_name)}</td>
-                    <td>{movimentoLabel[mov.movement_type] || mov.movement_type}</td>
-                    <td>{corrigirOrtografiaUI(mov.variant_label || "Padrão")}</td>
-                    <td>{corrigirOrtografiaUI(mov.package_name || "-")}</td>
-                    <td>{mov.units_delta > 0 ? `+${mov.units_delta}` : mov.units_delta}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        ) : null}
-      </section>
-
+      <InventoryPanel
+        inventorySectionRef={inventorySectionRef}
+        inventorySearchRef={inventorySearchRef}
+        search={search}
+        setSearch={setSearch}
+        activeSeasonalCampaignId={activeSeasonalCampaignId}
+        deactivateSeasonalFilter={deactivateSeasonalFilter}
+        statusFilter={statusFilter}
+        setStatusFilter={setStatusFilter}
+        ordering={ordering}
+        setOrdering={setOrdering}
+        setorAtivoId={setorAtivoId}
+        setorAtivoNome={setorAtivoNome}
+        inventorySummary={inventorySummary}
+        orderingLabel={orderingLabel}
+        alertFilter={alertFilter}
+        applyAlertFilter={applyAlertFilter}
+        canWrite={canWrite}
+        inventoryAttentionList={inventoryAttentionList}
+        handlePrepareRestock={handlePrepareRestock}
+        activeSeasonalCampaign={activeSeasonalCampaign}
+        searchApplied={searchApplied}
+        loading={loading}
+        displayedEntries={displayedEntries}
+        activeSeasonalTerms={activeSeasonalTerms}
+        applySeasonalTerm={applySeasonalTerm}
+        clearSeasonalFilter={clearSeasonalFilter}
+        error={error}
+        reloadDashboardData={reloadDashboardData}
+        skeletonRows={skeletonRows}
+        clearInventoryFilters={clearInventoryFilters}
+        restockQty={restockQty}
+        setRestockQty={setRestockQty}
+        restockPackage={restockPackage}
+        setRestockPackage={setRestockPackage}
+        handleRestock={handleRestock}
+        page={page}
+        pageCount={pageCount}
+        setPage={setPage}
+        movimentosLimit={movimentosLimit}
+        setMovimentosLimit={setMovimentosLimit}
+        movimentos={movimentos}
+        formatDateTimePtBr={formatDateTimePtBr}
+        corrigirOrtografiaUI={corrigirOrtografiaUI}
+        formatarTamanhoUI={formatarTamanhoUI}
+        formatCurrency={formatCurrency}
+        movimentoLabel={movimentoLabel}
+        normalizarTexto={normalizarTexto}
+      />
       {isBusy ? <p className="muted global-status">Operacao em andamento...</p> : null}
       {toast ? (
         <div className={`feedback toast ${toast.type || "success"}`} role="status" aria-live="polite">
@@ -2403,6 +1633,19 @@ function App() {
 }
 
 export default App;
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 

@@ -2,6 +2,7 @@ from django.contrib.auth.models import Group, User
 from django.urls import reverse
 from rest_framework import status
 from rest_framework.test import APITestCase
+from unittest.mock import patch
 
 from .models import Category, Department, ProductBase, ProductPackage, ProductVariant
 
@@ -307,3 +308,54 @@ class CatalogApiTests(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         products = [item.get("product_name") for item in response.data.get("items", [])]
         self.assertIn("Isqueiro", products)
+
+    @patch("api.views.search_by_name")
+    @patch("api.views.search_local_catalog")
+    @patch("api.views._search_stock_catalog")
+    def test_catalog_lookup_limits_response_size(self, mock_stock, mock_local, mock_external):
+        self.authenticate(self.manager)
+        mock_stock.return_value = []
+        mock_external.return_value = []
+        mock_local.return_value = [
+            {
+                "barcode": str(index),
+                "product_name": f"Produto {index}",
+                "brand": "Marca",
+                "category": "Mercearia",
+                "variant_label": "Tradicional",
+                "package_size": "1UN",
+                "department_names": ["Mercearia"],
+                "source": "catalogo_local_br",
+            }
+            for index in range(150)
+        ]
+
+        response = self.client.get(reverse("catalog-lookup"), {"q": "produto"})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.data["items"]), 120)
+        self.assertEqual(response.data["meta"]["limite_itens"], 120)
+        self.assertEqual(response.data["meta"]["resultados_totais"], 150)
+
+    @patch("api.views.search_by_name")
+    @patch("api.views.search_local_catalog")
+    @patch("api.views._search_stock_catalog")
+    def test_catalog_lookup_hides_expanded_tokens_from_response(self, mock_stock, mock_local, mock_external):
+        self.authenticate(self.manager)
+        mock_stock.return_value = []
+        mock_external.return_value = []
+        mock_local.return_value = [
+            {
+                "barcode": "1",
+                "product_name": "Refrigerante",
+                "brand": "Coca-Cola",
+                "category": "Bebidas",
+                "variant_label": "Zero",
+                "package_size": "2L",
+                "department_names": ["Bebidas"],
+                "source": "catalogo_local_br",
+            }
+        ]
+
+        response = self.client.get(reverse("catalog-lookup"), {"q": "refri zero"})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertNotIn("tokens_expandidos", response.data["meta"])

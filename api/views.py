@@ -1,4 +1,7 @@
-﻿import re
+﻿import json
+import logging
+import re
+import urllib.error
 from django.contrib.auth.models import Group
 
 from django.db import transaction
@@ -44,6 +47,8 @@ from .services.taxonomy import (
     resolve_category_name,
 )
 
+logger = logging.getLogger(__name__)
+
 REFRIGERANTE_BRANDS = {
     "coca-cola",
     "coca cola",
@@ -84,6 +89,7 @@ REFRI_BRAND_VARIANT_HINTS = {
 
 CATALOG_STOCK_SEARCH_LIMIT = 400
 CATALOG_LOCAL_SEARCH_LIMIT = 400
+CATALOG_RESPONSE_LIMIT = 120
 BEER_BRANDS = {
     "skol",
     "brahma",
@@ -1146,7 +1152,8 @@ class CatalogLookupView(APIView):
             if bluesoft_ready:
                 try:
                     external_item = lookup_by_barcode(barcode)
-                except Exception:
+                except (urllib.error.HTTPError, urllib.error.URLError, TimeoutError, json.JSONDecodeError) as exc:
+                    logger.warning("Falha ao consultar Bluesoft por codigo de barras: %s", exc)
                     external_item = None
             item = external_item.__dict__ if external_item else local_item
             return Response(
@@ -1177,7 +1184,8 @@ class CatalogLookupView(APIView):
             local_count = len(local_items)
             try:
                 external_items = search_by_name(query)
-            except Exception:
+            except (urllib.error.HTTPError, urllib.error.URLError, TimeoutError, json.JSONDecodeError) as exc:
+                logger.warning("Falha ao consultar Bluesoft por nome: %s", exc)
                 external_items = []
             external_count = len(external_items)
 
@@ -1223,14 +1231,15 @@ class CatalogLookupView(APIView):
             return Response(
                 {
                     "item": None,
-                    "items": merged_items,
+                    "items": merged_items[:CATALOG_RESPONSE_LIMIT],
                     "meta": {
                         "modo": "premium",
-                        "tokens_expandidos": query_tokens[:12],
                         "bluesoft_configurada": bluesoft_ready,
                         "resultados_estoque": stock_count,
                         "resultados_bluesoft": external_count,
                         "resultados_locais": local_count,
+                        "resultados_totais": len(merged_items),
+                        "limite_itens": CATALOG_RESPONSE_LIMIT,
                     },
                 }
             )
@@ -1256,6 +1265,10 @@ class CurrentSessionView(APIView):
                 ),
             }
         )
+
+
+
+
 
 
 

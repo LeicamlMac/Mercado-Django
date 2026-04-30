@@ -1,0 +1,7 @@
+﻿/* Componente isolado para manter responsabilidade de tema fora do App */
+.theme-toggle {
+  position: fixed;
+  top: 1rem;
+  right: 1rem;
+  z-index: 30;
+}

@@ -1,4 +1,4 @@
-export const STORAGE_KEY = "mercado_auth_tokens";
+﻿export const STORAGE_KEY = "mercado_auth_tokens";
 export const THEME_STORAGE_KEY = "mercado_theme";
 export const CATALOG_USAGE_STORAGE_KEY = "mercado_catalog_usage_v1";
 
@@ -123,7 +123,7 @@ const ORTHOGRAPHY_SUBSTITUTIONS = [
   [/Ovo de Pascoa/gi, "Ovo de Páscoa"],
   [/Bebe/gi, "Bebê"],
   [/Farmacia/gi, "Farmácia"],
-  [/ElegÃª/gi, "Elege"],
+  [/Elegê/gi, "Elegê"],
   [/Feijao-de-corda/gi, "Feijao-de-corda"],
   [/Feijao/gi, "Feijao"],
 ];
@@ -291,3 +291,4 @@ export async function requestJson(path, options = {}) {
   }
   return body;
 }
+
